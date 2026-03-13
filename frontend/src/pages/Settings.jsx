@@ -32,16 +32,15 @@ export default function Settings() {
       }
     }
 
-    fetch('http://localhost:3001/api/settings', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
-      body: JSON.stringify(settings)
-    }).then((res) => res.json()).then((data) => {
+    try {
+      const { data } = await saveSettings(settings);
       toast.success("Settings saved successfully!", { icon: '⚙️' });
       if (data.reseeded) {
         toast.success("Syllabus fully updated to new level!", { icon: '🔄' });
       }
-    }).catch(err => toast.error("Failed saving settings."));
+    } catch (err) {
+      toast.error("Failed saving settings.");
+    }
   };
 
   const handleTestEmail = async () => {
