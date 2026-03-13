@@ -282,13 +282,14 @@ async function seedDataForUser(userId, level = 'foundation', resetSettings = tru
   }
 
   // Insert all subjects and their chapters using a transaction
-  await db.transaction(async (tx) => {
+  const tx = await db.transaction('write');
+  try {
     for (const sub of subjectsData) {
       const subRes = await tx.execute({
         sql: 'INSERT INTO subjects (user_id, name, total_marks) VALUES (?, ?, ?)',
         args: [userId, sub.name, sub.marks]
       });
-      const subjectId = subRes.lastInsertRowid;
+      const subjectId = Number(subRes.lastInsertRowid);
       
       for (let i = 0; i < sub.chapters.length; i++) {
         const ch = sub.chapters[i];
@@ -314,7 +315,11 @@ async function seedDataForUser(userId, level = 'foundation', resetSettings = tru
         });
       }
     }
-  });
+    await tx.commit();
+  } catch (err) {
+    await tx.rollback();
+    throw err;
+  }
 }
 
 module.exports = { db, initDB, seedDataForUser };
