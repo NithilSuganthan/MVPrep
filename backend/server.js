@@ -11,10 +11,12 @@ const {
   verifyAuthenticationResponse,
 } = require('@simplewebauthn/server');
 const crypto = require('crypto');
-const { db, seedDataForUser } = require('./src/database');
+const { db, seedDataForUser, initDB } = require('./src/database');
 const { startEmailCrons, sendEmail } = require('./src/email');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'ca-revision-architect-secret';
+const app = express();
+const PORT = process.env.PORT || 3001;
 
 // Initialize DB and start server
 async function bootstrap() {
