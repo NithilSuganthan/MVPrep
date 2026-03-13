@@ -283,44 +283,37 @@ async function seedDataForUser(userId, level = 'foundation', resetSettings = tru
     ];
   }
 
-  // Insert all subjects and their chapters using a transaction
-  const tx = await db.transaction('write');
-  try {
-    for (const sub of subjectsData) {
-      const subRes = await tx.execute({
-        sql: 'INSERT INTO subjects (user_id, name, total_marks) VALUES (?, ?, ?)',
-        args: [userId, sub.name, sub.marks]
+  // Insert all subjects and their chapters (sequential inserts, no transaction needed)
+  for (const sub of subjectsData) {
+    const subRes = await db.execute({
+      sql: 'INSERT INTO subjects (user_id, name, total_marks) VALUES (?, ?, ?)',
+      args: [userId, sub.name, sub.marks]
+    });
+    const subjectId = Number(subRes.lastInsertRowid);
+    
+    for (let i = 0; i < sub.chapters.length; i++) {
+      const ch = sub.chapters[i];
+      await db.execute({
+        sql: 'INSERT INTO chapters (subject_id, name, marks, priority, status, sort_order) VALUES (?, ?, ?, ?, ?, ?)',
+        args: [subjectId, ch.name, ch.marks, ch.priority, ch.status, i]
       });
-      const subjectId = Number(subRes.lastInsertRowid);
-      
-      for (let i = 0; i < sub.chapters.length; i++) {
-        const ch = sub.chapters[i];
-        await tx.execute({
-          sql: 'INSERT INTO chapters (subject_id, name, marks, priority, status, sort_order) VALUES (?, ?, ?, ?, ?, ?)',
-          args: [subjectId, ch.name, ch.marks, ch.priority, ch.status, i]
-        });
-      }
     }
+  }
 
-    if (resetSettings) {
-      const settings = [
-        [userId, 'student_name', 'CA Aspirant'],
-        [userId, 'exam_date', ''],
-        [userId, 'theme', 'dark'],
-        [userId, 'level', level],
-        [userId, 'pomodoros_completed', '0']
-      ];
-      for (const [uid, key, val] of settings) {
-        await tx.execute({
-          sql: "INSERT OR IGNORE INTO settings (user_id, key, value) VALUES (?, ?, ?)",
-          args: [uid, key, val]
-        });
-      }
+  if (resetSettings) {
+    const settings = [
+      [userId, 'student_name', 'CA Aspirant'],
+      [userId, 'exam_date', ''],
+      [userId, 'theme', 'dark'],
+      [userId, 'level', level],
+      [userId, 'pomodoros_completed', '0']
+    ];
+    for (const [uid, key, val] of settings) {
+      await db.execute({
+        sql: "INSERT OR IGNORE INTO settings (user_id, key, value) VALUES (?, ?, ?)",
+        args: [uid, key, val]
+      });
     }
-    await tx.commit();
-  } catch (err) {
-    await tx.rollback();
-    throw err;
   }
 }
 

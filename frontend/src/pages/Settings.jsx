@@ -10,10 +10,12 @@ export default function Settings() {
     theme: 'dark'
   });
   const [loading, setLoading] = useState(true);
+  const [originalLevel, setOriginalLevel] = useState(null);
 
   useEffect(() => {
     getSettings().then(res => {
       setSettings(res.data);
+      setOriginalLevel(res.data.level);
       setLoading(false);
     });
   }, []);
@@ -26,7 +28,7 @@ export default function Settings() {
   const handleSave = async (e) => {
     e.preventDefault();
 
-    if (settings.level && settings.level !== (await getSettings()).data.level) {
+    if (settings.level && settings.level !== originalLevel) {
       if (!window.confirm("WARNING: Changing your CA Level will instantly wipe all your current subjects, chapters, notes, and progress to load the new syllabus. Are you absolutely sure?")) {
         return;
       }
@@ -37,6 +39,7 @@ export default function Settings() {
       toast.success("Settings saved successfully!", { icon: '⚙️' });
       if (data.reseeded) {
         toast.success("Syllabus fully updated to new level!", { icon: '🔄' });
+        setOriginalLevel(settings.level);
       }
     } catch (err) {
       toast.error("Failed saving settings.");
