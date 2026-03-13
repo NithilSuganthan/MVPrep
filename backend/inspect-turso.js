@@ -6,22 +6,17 @@ const db = createClient({
   authToken: process.env.TURSO_AUTH_TOKEN,
 });
 
-async function checkDB() {
-  try {
-    const users = await db.execute("SELECT id, email FROM users");
-    console.log("Users:", users.rows);
-
-    for (let u of users.rows) {
-        console.log(`\n--- User ${u.id} (${u.email}) ---`);
-        const subjects = await db.execute({sql: "SELECT * FROM subjects WHERE user_id = ?", args: [u.id]});
-        console.log("Subjects count:", subjects.rows.length);
-        
-        const settings = await db.execute({sql: "SELECT * FROM settings WHERE user_id = ?", args: [u.id]});
-        console.log("Settings:", settings.rows);
-    }
-  } catch(e) {
-    console.error("DB Check Failed:", e);
+async function run() {
+  const users = await db.execute("SELECT id, email FROM users");
+  console.log("=== ALL USERS ===");
+  for (const u of users.rows) {
+    const subs = await db.execute({sql: "SELECT COUNT(*) as c FROM subjects WHERE user_id = ?", args: [u.id]});
+    console.log(`  User ${u.id}: ${u.email} | Subjects: ${subs.rows[0].c}`);
   }
-}
 
-checkDB();
+  const admins = await db.execute("SELECT * FROM admins");
+  console.log("\n=== ADMINS ===");
+  admins.rows.forEach(a => console.log(`  ${a.email}`));
+  process.exit(0);
+}
+run();

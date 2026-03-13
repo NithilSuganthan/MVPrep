@@ -48,6 +48,8 @@ async function initDB() {
       priority TEXT NOT NULL CHECK(priority IN ('A', 'B', 'C')) DEFAULT 'C',
       status TEXT NOT NULL CHECK(status IN ('Not Started', 'Revising', 'Done')) DEFAULT 'Not Started',
       sort_order INTEGER DEFAULT 0,
+      notes TEXT DEFAULT '',
+      frequency TEXT DEFAULT 'Frequent',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE CASCADE
     );`,
