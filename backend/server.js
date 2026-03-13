@@ -14,11 +14,27 @@ const crypto = require('crypto');
 const { db, seedDataForUser } = require('./src/database');
 const { startEmailCrons, sendEmail } = require('./src/email');
 
-const app = express();
-const PORT = process.env.PORT || 3001;
-const rpID = 'localhost';
-const expectedOrigin = 'http://localhost:5173';
-const JWT_SECRET = 'ca-revision-architect-secret'; // Replace in prod
+const JWT_SECRET = process.env.JWT_SECRET || 'ca-revision-architect-secret';
+
+// Initialize DB and start server
+async function bootstrap() {
+  try {
+    console.log('☁️ Initializing Cloud Database...');
+    await initDB();
+    console.log('✅ Database connected & schema ready.');
+
+    app.listen(PORT, () => {
+      console.log(`🚀 MVPrep Server running on port ${PORT}`);
+      console.log('📅 Starting Study Reminder crons...');
+      startEmailCrons();
+    });
+  } catch (err) {
+    console.error('❌ Database Initialization Failed:', err);
+    process.exit(1);
+  }
+}
+
+bootstrap();
 
 app.use(cors());
 app.use(express.json());
@@ -28,22 +44,31 @@ app.use(express.static(path.join(__dirname, '../frontend/dist')));
 
 // ==================== AUTHENTICATION ====================
 
-app.post('/api/register', (req, res) => {
+app.post('/api/register', async (req, res) => {
   try {
     const { email, password, name, level = 'foundation' } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
 
-    const existingUser = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
-    if (existingUser) return res.status(400).json({ error: 'Email already registered' });
+    const existingUserRes = await db.execute({
+      sql: 'SELECT id FROM users WHERE email = ?',
+      args: [email]
+    });
+    if (existingUserRes.rows[0]) return res.status(400).json({ error: 'Email already registered' });
 
     const passwordHash = bcrypt.hashSync(password, 10);
-    const result = db.prepare('INSERT INTO users (email, password_hash) VALUES (?, ?)').run(email, passwordHash);
-    const userId = result.lastInsertRowid;
+    const result = await db.execute({
+      sql: 'INSERT INTO users (email, password_hash) VALUES (?, ?)',
+      args: [email, passwordHash]
+    });
+    const userId = Number(result.lastInsertRowid);
 
     // Seed mock data & settings for new user
-    seedDataForUser(userId, level);
+    await seedDataForUser(userId, level);
     if (name) {
-      db.prepare("INSERT OR REPLACE INTO settings (user_id, key, value) VALUES (?, 'student_name', ?)").run(userId, name);
+      await db.execute({
+        sql: "INSERT OR REPLACE INTO settings (user_id, key, value) VALUES (?, 'student_name', ?)",
+        args: [userId, name]
+      });
     }
 
     const token = jwt.sign({ id: userId, email }, JWT_SECRET);
@@ -64,10 +89,14 @@ app.post('/api/register', (req, res) => {
   }
 });
 
-app.post('/api/login', (req, res) => {
+app.post('/api/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+    const userRes = await db.execute({
+      sql: 'SELECT * FROM users WHERE email = ?',
+      args: [email]
+    });
+    const user = userRes.rows[0];
     if (!user) return res.status(400).json({ error: 'Invalid credentials' });
 
     const isValid = bcrypt.compareSync(password, user.password_hash);
@@ -105,18 +134,29 @@ const authenticateToken = (req, res, next) => {
 
 // ==================== WEB-AUTHN PASSKEYS ====================
 
-app.post('/api/passkeys/generate-registration', authenticateToken, (req, res) => {
+app.post('/api/passkeys/generate-registration', authenticateToken, async (req, res) => {
   try {
-    const user = db.prepare('SELECT id, email, webauthn_user_id FROM users WHERE id = ?').get(req.user.id);
+    const userRes = await db.execute({
+      sql: 'SELECT id, email, webauthn_user_id FROM users WHERE id = ?',
+      args: [req.user.id]
+    });
+    const user = userRes.rows[0];
     let webAuthnUserId = user.webauthn_user_id;
     
     // If user has no webauthn_user_id, generate one and update DB
     if (!webAuthnUserId) {
       webAuthnUserId = crypto.randomUUID();
-      db.prepare('UPDATE users SET webauthn_user_id = ? WHERE id = ?').run(webAuthnUserId, req.user.id);
+      await db.execute({
+        sql: 'UPDATE users SET webauthn_user_id = ? WHERE id = ?',
+        args: [webAuthnUserId, req.user.id]
+      });
     }
 
-    const userPasskeys = db.prepare('SELECT public_key FROM passkeys WHERE user_id = ?').all(req.user.id);
+    const userPasskeysRes = await db.execute({
+      sql: 'SELECT id, public_key FROM passkeys WHERE user_id = ?',
+      args: [req.user.id]
+    });
+    const userPasskeys = userPasskeysRes.rows;
     
     const options = generateRegistrationOptions({
       rpName: 'MVPrep',
@@ -131,7 +171,10 @@ app.post('/api/passkeys/generate-registration', authenticateToken, (req, res) =>
       authenticatorSelection: { residentKey: 'preferred', userVerification: 'preferred' },
     });
 
-    db.prepare('UPDATE users SET current_challenge = ? WHERE id = ?').run(options.challenge, req.user.id);
+    await db.execute({
+      sql: 'UPDATE users SET current_challenge = ? WHERE id = ?',
+      args: [options.challenge, req.user.id]
+    });
     res.json(options);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -140,7 +183,11 @@ app.post('/api/passkeys/generate-registration', authenticateToken, (req, res) =>
 
 app.post('/api/passkeys/verify-registration', authenticateToken, async (req, res) => {
   try {
-    const user = db.prepare('SELECT id, email, webauthn_user_id, current_challenge FROM users WHERE id = ?').get(req.user.id);
+    const userRes = await db.execute({
+      sql: 'SELECT id, email, webauthn_user_id, current_challenge FROM users WHERE id = ?',
+      args: [req.user.id]
+    });
+    const user = userRes.rows[0];
     const expectedChallenge = user.current_challenge;
 
     let verification;
@@ -162,22 +209,28 @@ app.post('/api/passkeys/verify-registration', authenticateToken, async (req, res
       const transports = JSON.stringify(req.body.response.transports || []);
       const credIdBase64Url = Buffer.from(credentialID).toString('base64url');
 
-      db.prepare(`
-        INSERT INTO passkeys (id, user_id, webauthn_user_id, public_key, counter, device_type, backed_up, transports)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        credIdBase64Url,
-        user.id,
-        user.webauthn_user_id,
-        Buffer.from(credentialPublicKey),
-        counter,
-        credentialDeviceType,
-        credentialBackedUp ? 1 : 0,
-        transports
-      );
+      await db.execute({
+        sql: `
+          INSERT INTO passkeys (id, user_id, webauthn_user_id, public_key, counter, device_type, backed_up, transports)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        args: [
+          credIdBase64Url,
+          user.id,
+          user.webauthn_user_id,
+          Buffer.from(credentialPublicKey),
+          counter,
+          credentialDeviceType,
+          credentialBackedUp ? 1 : 0,
+          transports
+        ]
+      });
 
       // Clear challenge
-      db.prepare('UPDATE users SET current_challenge = NULL WHERE id = ?').run(user.id);
+      await db.execute({
+        sql: 'UPDATE users SET current_challenge = NULL WHERE id = ?',
+        args: [user.id]
+      });
 
       return res.json({ success: true, verified: true });
     }
@@ -210,10 +263,18 @@ app.post('/api/passkeys/verify-authentication', async (req, res) => {
     const expectedChallenge = global.passkeyChallenge;
     const credIdBase64Url = req.body.id;
 
-    const authPasskey = db.prepare('SELECT * FROM passkeys WHERE id = ?').get(credIdBase64Url);
+    const authPasskeyRes = await db.execute({
+      sql: 'SELECT * FROM passkeys WHERE id = ?',
+      args: [credIdBase64Url]
+    });
+    const authPasskey = authPasskeyRes.rows[0];
     if (!authPasskey) return res.status(400).json({ error: 'Passkey not found on system.' });
 
-    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(authPasskey.user_id);
+    const userRes = await db.execute({
+      sql: 'SELECT * FROM users WHERE id = ?',
+      args: [authPasskey.user_id]
+    });
+    const user = userRes.rows[0];
     if (!user) return res.status(400).json({ error: 'User bound to passkey not found.' });
 
     let verification;
@@ -237,7 +298,10 @@ app.post('/api/passkeys/verify-authentication', async (req, res) => {
 
     if (verification.verified) {
       // Update counter
-      db.prepare('UPDATE passkeys SET counter = ? WHERE id = ?').run(verification.authenticationInfo.newCounter, authPasskey.id);
+      await db.execute({
+        sql: 'UPDATE passkeys SET counter = ? WHERE id = ?',
+        args: [verification.authenticationInfo.newCounter, authPasskey.id]
+      });
 
       // Login success
       const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET);
@@ -262,15 +326,21 @@ app.post('/api/passkeys/verify-authentication', async (req, res) => {
 
 // ==================== NOTES ====================
 
-app.get('/api/notes', authenticateToken, (req, res) => {
+app.get('/api/notes', authenticateToken, async (req, res) => {
   try {
-    const subjects = db.prepare('SELECT id, name FROM subjects WHERE user_id = ? ORDER BY id').all(req.user.id);
-    const chaptersStmt = db.prepare('SELECT id, name, notes FROM chapters WHERE subject_id = ? ORDER BY sort_order');
-
-    const data = subjects.map(sub => {
-      const chapters = chaptersStmt.all(sub.id);
-      return { ...sub, chapters };
+    const subjectsRes = await db.execute({
+      sql: 'SELECT id, name FROM subjects WHERE user_id = ? ORDER BY id',
+      args: [req.user.id]
     });
+    const subjects = subjectsRes.rows;
+
+    const data = await Promise.all(subjects.map(async sub => {
+      const chaptersRes = await db.execute({
+        sql: 'SELECT id, name, notes FROM chapters WHERE subject_id = ? ORDER BY sort_order',
+        args: [sub.id]
+      });
+      return { ...sub, chapters: chaptersRes.rows };
+    }));
 
     res.json(data);
   } catch (err) {
@@ -280,13 +350,21 @@ app.get('/api/notes', authenticateToken, (req, res) => {
 
 // ==================== SUBJECTS ====================
 
-app.get('/api/subjects', authenticateToken, (req, res) => {
+app.get('/api/subjects', authenticateToken, async (req, res) => {
   try {
-    const subjects = db.prepare('SELECT * FROM subjects WHERE user_id = ? ORDER BY id').all(req.user.id);
-    const chaptersStmt = db.prepare('SELECT * FROM chapters WHERE subject_id = ? ORDER BY sort_order');
+    const subjectsRes = await db.execute({
+      sql: 'SELECT * FROM subjects WHERE user_id = ? ORDER BY id',
+      args: [req.user.id]
+    });
+    const subjects = subjectsRes.rows;
 
-    const enriched = subjects.map(sub => {
-      const chapters = chaptersStmt.all(sub.id);
+    const enriched = await Promise.all(subjects.map(async sub => {
+      const chaptersRes = await db.execute({
+        sql: 'SELECT * FROM chapters WHERE subject_id = ? ORDER BY sort_order',
+        args: [sub.id]
+      });
+      const chapters = chaptersRes.rows;
+
       const marksCovered = chapters
         .filter(ch => ch.status === 'Done')
         .reduce((sum, ch) => sum + ch.marks, 0);
@@ -327,7 +405,7 @@ app.get('/api/subjects', authenticateToken, (req, res) => {
           },
         }
       };
-    });
+    }));
 
     res.json(enriched);
   } catch (err) {
@@ -335,32 +413,44 @@ app.get('/api/subjects', authenticateToken, (req, res) => {
   }
 });
 
-app.get('/api/subjects/:id', authenticateToken, (req, res) => {
+app.get('/api/subjects/:id', authenticateToken, async (req, res) => {
   try {
-    const subject = db.prepare('SELECT * FROM subjects WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+    const subjectRes = await db.execute({
+      sql: 'SELECT * FROM subjects WHERE id = ? AND user_id = ?',
+      args: [req.params.id, req.user.id]
+    });
+    const subject = subjectRes.rows[0];
     if (!subject) return res.status(404).json({ error: 'Subject not found' });
 
-    const chapters = db.prepare('SELECT * FROM chapters WHERE subject_id = ? ORDER BY sort_order').all(req.params.id);
-    res.json({ ...subject, chapters });
+    const chaptersRes = await db.execute({
+      sql: 'SELECT * FROM chapters WHERE subject_id = ? ORDER BY sort_order',
+      args: [req.params.id]
+    });
+    res.json({ ...subject, chapters: chaptersRes.rows });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/subjects', authenticateToken, (req, res) => {
+app.post('/api/subjects', authenticateToken, async (req, res) => {
   try {
     const { name, total_marks } = req.body;
-    const result = db.prepare('INSERT INTO subjects (user_id, name, total_marks) VALUES (?, ?, ?)')
-      .run(req.user.id, name, total_marks || 100);
-    res.json({ id: result.lastInsertRowid, name, total_marks: total_marks || 100 });
+    const result = await db.execute({
+      sql: 'INSERT INTO subjects (user_id, name, total_marks) VALUES (?, ?, ?)',
+      args: [req.user.id, name, total_marks || 100]
+    });
+    res.json({ id: Number(result.lastInsertRowid), name, total_marks: total_marks || 100 });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.delete('/api/subjects/:id', authenticateToken, (req, res) => {
+app.delete('/api/subjects/:id', authenticateToken, async (req, res) => {
   try {
-    db.prepare('DELETE FROM subjects WHERE id = ? AND user_id = ?').run(req.params.id, req.user.id);
+    await db.execute({
+      sql: 'DELETE FROM subjects WHERE id = ? AND user_id = ?',
+      args: [req.params.id, req.user.id]
+    });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -369,12 +459,16 @@ app.delete('/api/subjects/:id', authenticateToken, (req, res) => {
 
 // ==================== CHAPTERS ====================
 
-app.patch('/api/chapters/:id', authenticateToken, (req, res) => {
+app.patch('/api/chapters/:id', authenticateToken, async (req, res) => {
   try {
     const { status, priority, marks, name, sort_order, notes, frequency } = req.body;
     
     // Ensure the chapter belongs to the user
-    const chapter = db.prepare('SELECT c.id FROM chapters c JOIN subjects s ON c.subject_id = s.id WHERE c.id = ? AND s.user_id = ?').get(req.params.id, req.user.id);
+    const chapterRes = await db.execute({
+      sql: 'SELECT c.id FROM chapters c JOIN subjects s ON c.subject_id = s.id WHERE c.id = ? AND s.user_id = ?',
+      args: [req.params.id, req.user.id]
+    });
+    const chapter = chapterRes.rows[0];
     if (!chapter) return res.status(404).json({ error: 'Chapter not found' });
 
     const updates = [];
@@ -390,41 +484,60 @@ app.patch('/api/chapters/:id', authenticateToken, (req, res) => {
 
     if (updates.length > 0) {
       values.push(req.params.id);
-      db.prepare(`UPDATE chapters SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+      await db.execute({
+        sql: `UPDATE chapters SET ${updates.join(', ')} WHERE id = ?`,
+        args: values
+      });
 
       // Log study activity for heatmap
       const today = new Date().toISOString().split('T')[0];
-      db.prepare(`
-        INSERT INTO study_activity (user_id, activity_date, activity_type, count)
-        VALUES (?, ?, 'chapter_update', 1)
-        ON CONFLICT(user_id, activity_date, activity_type) DO UPDATE SET count = count + 1
-      `).run(req.user.id, today);
+      await db.execute({
+        sql: `
+          INSERT INTO study_activity (user_id, activity_date, activity_type, count)
+          VALUES (?, ?, 'chapter_update', 1)
+          ON CONFLICT(user_id, activity_date, activity_type) DO UPDATE SET count = count + 1
+        `,
+        args: [req.user.id, today]
+      });
     }
 
-    const updated = db.prepare('SELECT * FROM chapters WHERE id = ?').get(req.params.id);
-    res.json(updated);
+    const updatedRes = await db.execute({
+      sql: 'SELECT * FROM chapters WHERE id = ?',
+      args: [req.params.id]
+    });
+    res.json(updatedRes.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/chapters', authenticateToken, (req, res) => {
+app.post('/api/chapters', authenticateToken, async (req, res) => {
   try {
     const { subject_id, name, marks, priority, status, notes, frequency } = req.body;
     
     // Ensure subject belongs to user
-    const subject = db.prepare('SELECT id FROM subjects WHERE id = ? AND user_id = ?').get(subject_id, req.user.id);
-    if (!subject) return res.status(404).json({ error: 'Subject not found' });
+    const subjectRes = await db.execute({
+      sql: 'SELECT id FROM subjects WHERE id = ? AND user_id = ?',
+      args: [subject_id, req.user.id]
+    });
+    if (!subjectRes.rows[0]) return res.status(404).json({ error: 'Subject not found' });
 
-    const maxOrder = db.prepare('SELECT MAX(sort_order) as max_order FROM chapters WHERE subject_id = ?').get(subject_id);
-    const sort_order = (maxOrder?.max_order || 0) + 1;
+    const maxOrderRes = await db.execute({
+      sql: 'SELECT MAX(sort_order) as max_order FROM chapters WHERE subject_id = ?',
+      args: [subject_id]
+    });
+    const sort_order = (maxOrderRes.rows[0]?.max_order || 0) + 1;
 
-    const result = db.prepare(
-      'INSERT INTO chapters (subject_id, name, marks, priority, status, sort_order, notes, frequency) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run(subject_id, name, marks || 0, priority || 'C', status || 'Not Started', sort_order, notes || '', frequency || 'Frequent');
+    const result = await db.execute({
+      sql: 'INSERT INTO chapters (subject_id, name, marks, priority, status, sort_order, notes, frequency) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      args: [subject_id, name, marks || 0, priority || 'C', status || 'Not Started', sort_order, notes || '', frequency || 'Frequent']
+    });
 
-    const chapter = db.prepare('SELECT * FROM chapters WHERE id = ?').get(result.lastInsertRowid);
-    res.json(chapter);
+    const chapterRes = await db.execute({
+      sql: 'SELECT * FROM chapters WHERE id = ?',
+      args: [result.lastInsertRowid]
+    });
+    res.json(chapterRes.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -432,16 +545,29 @@ app.post('/api/chapters', authenticateToken, (req, res) => {
 
 // ==================== DASHBOARD ====================
 
-app.get('/api/dashboard', authenticateToken, (req, res) => {
+app.get('/api/dashboard', authenticateToken, async (req, res) => {
   try {
-    const subjects = db.prepare('SELECT * FROM subjects WHERE user_id = ?').all(req.user.id);
-    const allChapters = db.prepare(`
-      SELECT c.* FROM chapters c
-      JOIN subjects s ON c.subject_id = s.id
-      WHERE s.user_id = ?
-    `).all(req.user.id);
+    const subjectsRes = await db.execute({
+      sql: 'SELECT * FROM subjects WHERE user_id = ?',
+      args: [req.user.id]
+    });
+    const subjects = subjectsRes.rows;
 
-    let pomodoroData = db.prepare("SELECT value FROM settings WHERE key = 'pomodoros_completed' AND user_id = ?").get(req.user.id);
+    const allChaptersRes = await db.execute({
+      sql: `
+        SELECT c.* FROM chapters c
+        JOIN subjects s ON c.subject_id = s.id
+        WHERE s.user_id = ?
+      `,
+      args: [req.user.id]
+    });
+    const allChapters = allChaptersRes.rows;
+
+    const pomodoroDataRes = await db.execute({
+      sql: "SELECT value FROM settings WHERE key = 'pomodoros_completed' AND user_id = ?",
+      args: [req.user.id]
+    });
+    const pomodoroData = pomodoroDataRes.rows[0];
     let totalPomodoros = pomodoroData ? parseInt(pomodoroData.value) : 0;
 
     let totalMarks = 0;
@@ -462,25 +588,33 @@ app.get('/api/dashboard', authenticateToken, (req, res) => {
     const confidenceScore = totalMarks > 0 ? Math.round((marksCovered / totalMarks) * 100) : 0;
     
     // Smart Revision Order (high priority, unrevised, ordered by priority & marks)
-    const smartRevisionOrder = db.prepare(`
-      SELECT c.*, s.name as subject_name FROM chapters c
-      JOIN subjects s ON c.subject_id = s.id
-      WHERE s.user_id = ? AND c.status != 'Done'
-      ORDER BY 
-        CASE c.priority WHEN 'A' THEN 1 WHEN 'B' THEN 2 WHEN 'C' THEN 3 END,
-        CASE c.frequency WHEN 'Very Frequent' THEN 1 WHEN 'Frequent' THEN 2 ELSE 3 END,
-        c.marks DESC
-      LIMIT 5
-    `).all(req.user.id);
+    const smartRevisionOrderRes = await db.execute({
+      sql: `
+        SELECT c.*, s.name as subject_name FROM chapters c
+        JOIN subjects s ON c.subject_id = s.id
+        WHERE s.user_id = ? AND c.status != 'Done'
+        ORDER BY 
+          CASE c.priority WHEN 'A' THEN 1 WHEN 'B' THEN 2 WHEN 'C' THEN 3 END,
+          CASE c.frequency WHEN 'Very Frequent' THEN 1 WHEN 'Frequent' THEN 2 ELSE 3 END,
+          c.marks DESC
+        LIMIT 5
+      `,
+      args: [req.user.id]
+    });
+    const smartRevisionOrder = smartRevisionOrderRes.rows;
 
     // High Risk Chapters (A priority with high marks, not started)
-    const highRiskChapters = db.prepare(`
-      SELECT c.*, s.name as subject_name FROM chapters c
-      JOIN subjects s ON c.subject_id = s.id
-      WHERE s.user_id = ? AND c.status = 'Not Started' AND c.priority = 'A' AND c.marks >= 8
-      ORDER BY c.marks DESC
-      LIMIT 5
-    `).all(req.user.id);
+    const highRiskChaptersRes = await db.execute({
+      sql: `
+        SELECT c.*, s.name as subject_name FROM chapters c
+        JOIN subjects s ON c.subject_id = s.id
+        WHERE s.user_id = ? AND c.status = 'Not Started' AND c.priority = 'A' AND c.marks >= 8
+        ORDER BY c.marks DESC
+        LIMIT 5
+      `,
+      args: [req.user.id]
+    });
+    const highRiskChapters = highRiskChaptersRes.rows;
 
     // ====== ENHANCED SCORE PREDICTOR ======
     // Per-subject score prediction with pass/fail analysis
@@ -527,8 +661,11 @@ app.get('/api/dashboard', authenticateToken, (req, res) => {
     const passingSubjects = subjectPredictions.filter(p => p.isPassing).length;
     const allPassing = passingSubjects === subjectPredictions.length;
 
-    let levelData = db.prepare("SELECT value FROM settings WHERE key = 'level' AND user_id = ?").get(req.user.id);
-    let level = levelData ? levelData.value : 'foundation';
+    const levelDataRes = await db.execute({
+      sql: "SELECT value FROM settings WHERE key = 'level' AND user_id = ?",
+      args: [req.user.id]
+    });
+    const level = levelDataRes.rows[0] ? levelDataRes.rows[0].value : 'foundation';
 
     res.json({
       level,
@@ -559,19 +696,30 @@ app.get('/api/dashboard', authenticateToken, (req, res) => {
   }
 });
 
-app.post('/api/pomodoro', authenticateToken, (req, res) => {
+app.post('/api/pomodoro', authenticateToken, async (req, res) => {
   try {
-    let count = db.prepare("SELECT value FROM settings WHERE key = 'pomodoros_completed' AND user_id = ?").get(req.user.id);
+    const countRes = await db.execute({
+      sql: "SELECT value FROM settings WHERE key = 'pomodoros_completed' AND user_id = ?",
+      args: [req.user.id]
+    });
+    const count = countRes.rows[0];
     let updatedCount = count ? parseInt(count.value) + 1 : 1;
-    db.prepare("INSERT OR REPLACE INTO settings (user_id, key, value) VALUES (?, 'pomodoros_completed', ?)").run(req.user.id, String(updatedCount));
+    
+    await db.execute({
+      sql: "INSERT OR REPLACE INTO settings (user_id, key, value) VALUES (?, 'pomodoros_completed', ?)",
+      args: [req.user.id, String(updatedCount)]
+    });
 
     // Log pomodoro activity for heatmap
     const today = new Date().toISOString().split('T')[0];
-    db.prepare(`
-      INSERT INTO study_activity (user_id, activity_date, activity_type, count)
-      VALUES (?, ?, 'pomodoro', 1)
-      ON CONFLICT(user_id, activity_date, activity_type) DO UPDATE SET count = count + 1
-    `).run(req.user.id, today);
+    await db.execute({
+      sql: `
+        INSERT INTO study_activity (user_id, activity_date, activity_type, count)
+        VALUES (?, ?, 'pomodoro', 1)
+        ON CONFLICT(user_id, activity_date, activity_type) DO UPDATE SET count = count + 1
+      `,
+      args: [req.user.id, today]
+    });
     
     res.json({ success: true, pomodoros_completed: updatedCount });
   } catch (err) {
@@ -581,16 +729,20 @@ app.post('/api/pomodoro', authenticateToken, (req, res) => {
 
 // ==================== STUDY ACTIVITY HEATMAP ====================
 
-app.get('/api/activity', authenticateToken, (req, res) => {
+app.get('/api/activity', authenticateToken, async (req, res) => {
   try {
     // Get last 365 days of activity
-    const activities = db.prepare(`
-      SELECT activity_date, SUM(count) as total_count
-      FROM study_activity
-      WHERE user_id = ? AND activity_date >= date('now', '-365 days')
-      GROUP BY activity_date
-      ORDER BY activity_date ASC
-    `).all(req.user.id);
+    const activitiesRes = await db.execute({
+      sql: `
+        SELECT activity_date, SUM(count) as total_count
+        FROM study_activity
+        WHERE user_id = ? AND activity_date >= date('now', '-365 days')
+        GROUP BY activity_date
+        ORDER BY activity_date ASC
+      `,
+      args: [req.user.id]
+    });
+    const activities = activitiesRes.rows;
 
     // Calculate current streak
     let currentStreak = 0;
@@ -646,11 +798,15 @@ app.get('/api/activity', authenticateToken, (req, res) => {
 
 // ==================== REVISION PLANNER ====================
 
-app.post('/api/revision-plan', authenticateToken, (req, res) => {
+app.post('/api/revision-plan', authenticateToken, async (req, res) => {
   try {
     const { subject_id, hours_available, study_speed = 'normal', include_c = true } = req.body;
 
-    const subject = db.prepare('SELECT * FROM subjects WHERE id = ? AND user_id = ?').get(subject_id, req.user.id);
+    const subjectRes = await db.execute({
+      sql: 'SELECT * FROM subjects WHERE id = ? AND user_id = ?',
+      args: [subject_id, req.user.id]
+    });
+    const subject = subjectRes.rows[0];
     if (!subject) return res.status(404).json({ error: 'Subject not found' });
 
     let speedMult = 1.0;
@@ -661,7 +817,11 @@ app.post('/api/revision-plan', authenticateToken, (req, res) => {
     if (!include_c) query += ` AND priority != 'C'`;
     query += ` ORDER BY CASE priority WHEN 'A' THEN 1 WHEN 'B' THEN 2 WHEN 'C' THEN 3 END, marks DESC`;
 
-    const chapters = db.prepare(query).all(subject_id);
+    const chaptersRes = await db.execute({
+      sql: query,
+      args: [subject_id]
+    });
+    const chapters = chaptersRes.rows;
     const totalHours = parseFloat(hours_available) || 12;
     const totalChapterMarks = chapters.reduce((s, c) => s + c.marks, 0);
 
@@ -700,25 +860,30 @@ app.post('/api/revision-plan', authenticateToken, (req, res) => {
       totalMarks: slots[i].reduce((s, c) => s + c.marks, 0),
     }));
 
-    const result = db.prepare(
-      'INSERT INTO revision_plans (user_id, subject_id, hours_available, plan_data) VALUES (?, ?, ?, ?)'
-    ).run(req.user.id, subject_id, totalHours, JSON.stringify(plan));
+    const result = await db.execute({
+      sql: 'INSERT INTO revision_plans (user_id, subject_id, hours_available, plan_data) VALUES (?, ?, ?, ?)',
+      args: [req.user.id, subject_id, totalHours, JSON.stringify(plan)]
+    });
 
-    res.json({ id: result.lastInsertRowid, subject: subject.name, hoursAvailable: totalHours, plan, totalUnrevisedMarks: totalChapterMarks });
+    res.json({ id: Number(result.lastInsertRowid), subject: subject.name, hoursAvailable: totalHours, plan, totalUnrevisedMarks: totalChapterMarks });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.get('/api/revision-plans', authenticateToken, (req, res) => {
+app.get('/api/revision-plans', authenticateToken, async (req, res) => {
   try {
-    const plans = db.prepare(`
-      SELECT rp.*, s.name as subject_name 
-      FROM revision_plans rp 
-      JOIN subjects s ON rp.subject_id = s.id 
-      WHERE rp.user_id = ?
-      ORDER BY rp.created_at DESC
-    `).all(req.user.id);
+    const plansRes = await db.execute({
+      sql: `
+        SELECT rp.*, s.name as subject_name 
+        FROM revision_plans rp 
+        JOIN subjects s ON rp.subject_id = s.id 
+        WHERE rp.user_id = ?
+        ORDER BY rp.created_at DESC
+      `,
+      args: [req.user.id]
+    });
+    const plans = plansRes.rows;
 
     res.json(plans.map(p => ({ ...p, plan_data: JSON.parse(p.plan_data) })));
   } catch (err) {
@@ -728,14 +893,22 @@ app.get('/api/revision-plans', authenticateToken, (req, res) => {
 
 // ==================== SETTINGS ====================
 
-app.get('/api/settings', authenticateToken, (req, res) => {
+app.get('/api/settings', authenticateToken, async (req, res) => {
   try {
-    const settings = db.prepare('SELECT * FROM settings WHERE user_id = ?').all(req.user.id);
+    const settingsRes = await db.execute({
+      sql: 'SELECT * FROM settings WHERE user_id = ?',
+      args: [req.user.id]
+    });
+    const settings = settingsRes.rows;
     const obj = {};
     settings.forEach(s => { obj[s.key] = s.value; });
     
     // Add User Details to settings output safely
-    const user = db.prepare('SELECT email FROM users WHERE id = ?').get(req.user.id);
+    const userRes = await db.execute({
+      sql: 'SELECT email FROM users WHERE id = ?',
+      args: [req.user.id]
+    });
+    const user = userRes.rows[0];
     if (user) obj.user_email = user.email;
 
     res.json(obj);
@@ -744,28 +917,35 @@ app.get('/api/settings', authenticateToken, (req, res) => {
   }
 });
 
-app.put('/api/settings', authenticateToken, (req, res) => {
+app.put('/api/settings', authenticateToken, async (req, res) => {
   try {
-    let oldLevelData = db.prepare("SELECT value FROM settings WHERE key = 'level' AND user_id = ?").get(req.user.id);
+    const oldLevelDataRes = await db.execute({
+      sql: "SELECT value FROM settings WHERE key = 'level' AND user_id = ?",
+      args: [req.user.id]
+    });
+    const oldLevelData = oldLevelDataRes.rows[0];
     let oldLevel = oldLevelData ? oldLevelData.value : null;
 
-    const stmt = db.prepare('INSERT OR REPLACE INTO settings (user_id, key, value) VALUES (?, ?, ?)');
-    const updateAll = db.transaction((entries) => {
-      entries.forEach(([key, value]) => {
-        if (key !== 'user_email') {
-          stmt.run(req.user.id, key, String(value));
-        }
-      });
-    });
-    updateAll(Object.entries(req.body));
+    const entries = Object.entries(req.body);
+    for (const [key, value] of entries) {
+      if (key !== 'user_email') {
+        await db.execute({
+          sql: 'INSERT OR REPLACE INTO settings (user_id, key, value) VALUES (?, ?, ?)',
+          args: [req.user.id, key, String(value)]
+        });
+      }
+    }
 
     if (req.body.level && req.body.level !== oldLevel) {
       // User changed their CA level!
       // Delete their old subjects (which cascades deleting chapters and plans)
-      db.prepare('DELETE FROM subjects WHERE user_id = ?').run(req.user.id);
+      await db.execute({
+        sql: 'DELETE FROM subjects WHERE user_id = ?',
+        args: [req.user.id]
+      });
       
       // Reseed the database with the new level's chapters without overriding their personal settings
-      seedDataForUser(req.user.id, req.body.level, false);
+      await seedDataForUser(req.user.id, req.body.level, false);
     }
 
     res.json({ success: true, reseeded: req.body.level !== oldLevel });
@@ -778,7 +958,11 @@ app.put('/api/settings', authenticateToken, (req, res) => {
 
 app.post('/api/notify-test', authenticateToken, async (req, res) => {
   try {
-    const user = db.prepare('SELECT email FROM users WHERE id = ?').get(req.user.id);
+    const userRes = await db.execute({
+      sql: 'SELECT email FROM users WHERE id = ?',
+      args: [req.user.id]
+    });
+    const user = userRes.rows[0];
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     let htmlContent = `
@@ -801,31 +985,45 @@ app.post('/api/notify-test', authenticateToken, async (req, res) => {
 });
 
 // ==================== ADMIN PANEL ====================
-const _isAdmin = (email) => {
-  const found = db.prepare('SELECT email FROM admins WHERE email = ?').get(email);
-  return !!found;
+const _isAdmin = async (email) => {
+  const found = await db.execute({
+    sql: 'SELECT email FROM admins WHERE email = ?',
+    args: [email]
+  });
+  return !!found.rows[0];
 }
 
 // List admin emails
-app.get('/api/admin/admins', authenticateToken, (req, res) => {
+app.get('/api/admin/admins', authenticateToken, async (req, res) => {
   try {
-    const adminUser = db.prepare('SELECT email FROM users WHERE id = ?').get(req.user.id);
-    if (!_isAdmin(adminUser.email)) return res.status(403).json({ error: 'Unauthorised' });
-    const admins = db.prepare('SELECT email FROM admins').all();
-    res.json(admins);
+    const adminUserRes = await db.execute({
+      sql: 'SELECT email FROM users WHERE id = ?',
+      args: [req.user.id]
+    });
+    const adminUser = adminUserRes.rows[0];
+    if (!(await _isAdmin(adminUser.email))) return res.status(403).json({ error: 'Unauthorised' });
+    const adminsRes = await db.execute('SELECT email FROM admins');
+    res.json(adminsRes.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // Add admin
-app.post('/api/admin/admins', authenticateToken, (req, res) => {
+app.post('/api/admin/admins', authenticateToken, async (req, res) => {
   try {
-    const adminUser = db.prepare('SELECT email FROM users WHERE id = ?').get(req.user.id);
-    if (!_isAdmin(adminUser.email)) return res.status(403).json({ error: 'Unauthorised' });
+    const adminUserRes = await db.execute({
+      sql: 'SELECT email FROM users WHERE id = ?',
+      args: [req.user.id]
+    });
+    const adminUser = adminUserRes.rows[0];
+    if (!(await _isAdmin(adminUser.email))) return res.status(403).json({ error: 'Unauthorised' });
     const { email } = req.body;
     if (!email || !email.includes('@')) return res.status(400).json({ error: 'Valid email required' });
-    db.prepare('INSERT OR IGNORE INTO admins (email) VALUES (?)').run(email.trim().toLowerCase());
+    await db.execute({
+      sql: 'INSERT OR IGNORE INTO admins (email) VALUES (?)',
+      args: [email.trim().toLowerCase()]
+    });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -833,13 +1031,21 @@ app.post('/api/admin/admins', authenticateToken, (req, res) => {
 });
 
 // Remove admin
-app.delete('/api/admin/admins/:email', authenticateToken, (req, res) => {
+app.delete('/api/admin/admins/:email', authenticateToken, async (req, res) => {
   try {
-    const adminUser = db.prepare('SELECT email FROM users WHERE id = ?').get(req.user.id);
-    if (!_isAdmin(adminUser.email)) return res.status(403).json({ error: 'Unauthorised' });
-    const count = db.prepare('SELECT COUNT(*) as count FROM admins').get().count;
+    const adminUserRes = await db.execute({
+      sql: 'SELECT email FROM users WHERE id = ?',
+      args: [req.user.id]
+    });
+    const adminUser = adminUserRes.rows[0];
+    if (!(await _isAdmin(adminUser.email))) return res.status(403).json({ error: 'Unauthorised' });
+    const countRes = await db.execute('SELECT COUNT(*) as count FROM admins');
+    const count = countRes.rows[0].count;
     if (count <= 1) return res.status(400).json({ error: 'Cannot remove the last admin' });
-    db.prepare('DELETE FROM admins WHERE email = ?').run(decodeURIComponent(req.params.email));
+    await db.execute({
+      sql: 'DELETE FROM admins WHERE email = ?',
+      args: [decodeURIComponent(req.params.email)]
+    });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -847,47 +1053,44 @@ app.delete('/api/admin/admins/:email', authenticateToken, (req, res) => {
 });
 
 // Platform-wide analytics
-app.get('/api/admin/stats', authenticateToken, (req, res) => {
+app.get('/api/admin/stats', authenticateToken, async (req, res) => {
   try {
-    const adminUser = db.prepare('SELECT email FROM users WHERE id = ?').get(req.user.id);
-    if (!_isAdmin(adminUser.email)) return res.status(403).json({ error: 'Unauthorised' });
+    const adminUserRes = await db.execute({
+      sql: 'SELECT email FROM users WHERE id = ?',
+      args: [req.user.id]
+    });
+    const adminUser = adminUserRes.rows[0];
+    if (!(await _isAdmin(adminUser.email))) return res.status(403).json({ error: 'Unauthorised' });
 
-    const totalUsers = db.prepare('SELECT COUNT(*) as count FROM users').get().count;
-    const totalSubjects = db.prepare('SELECT COUNT(*) as count FROM subjects').get().count;
-    const totalChapters = db.prepare('SELECT COUNT(*) as count FROM chapters').get().count;
-    const doneChapters = db.prepare("SELECT COUNT(*) as count FROM chapters WHERE status = 'Done'").get().count;
-    const revisingChapters = db.prepare("SELECT COUNT(*) as count FROM chapters WHERE status = 'Revising'").get().count;
-    const notStartedChapters = db.prepare("SELECT COUNT(*) as count FROM chapters WHERE status = 'Not Started'").get().count;
+    const totalUsers = (await db.execute('SELECT COUNT(*) as count FROM users')).rows[0].count;
+    const totalSubjects = (await db.execute('SELECT COUNT(*) as count FROM subjects')).rows[0].count;
+    const totalChapters = (await db.execute('SELECT COUNT(*) as count FROM chapters')).rows[0].count;
+    const doneChapters = (await db.execute("SELECT COUNT(*) as count FROM chapters WHERE status = 'Done'")).rows[0].count;
+    const revisingChapters = (await db.execute("SELECT COUNT(*) as count FROM chapters WHERE status = 'Revising'")).rows[0].count;
+    const notStartedChapters = (await db.execute("SELECT COUNT(*) as count FROM chapters WHERE status = 'Not Started'")).rows[0].count;
 
     // Level distribution
-    const levelDist = db.prepare(`
+    const levelDistRes = await db.execute(`
       SELECT s.value as level, COUNT(*) as count FROM settings s 
       WHERE s.key = 'level' GROUP BY s.value
-    `).all();
+    `);
+    const levelDist = levelDistRes.rows;
 
     // Recent signups (last 7 days)
-    const recentSignups = db.prepare(`
+    const recentSignups = (await db.execute(`
       SELECT COUNT(*) as count FROM users 
       WHERE created_at >= datetime('now', '-7 days')
-    `).get().count;
-
-    // Database file size
-    const fs = require('fs');
-    const path = require('path');
-    const dbPath = path.join(__dirname, 'revision_architect.db');
-    let dbSizeBytes = 0;
-    try { dbSizeBytes = fs.statSync(dbPath).size; } catch(e) {}
+    `)).rows[0].count;
 
     res.json({
-      totalUsers,
-      totalSubjects,
-      totalChapters,
-      doneChapters,
-      revisingChapters,
-      notStartedChapters,
+      totalUsers: Number(totalUsers),
+      totalSubjects: Number(totalSubjects),
+      totalChapters: Number(totalChapters),
+      doneChapters: Number(doneChapters),
+      revisingChapters: Number(revisingChapters),
+      notStartedChapters: Number(notStartedChapters),
       levelDistribution: levelDist,
-      recentSignups,
-      dbSizeKB: Math.round(dbSizeBytes / 1024),
+      recentSignups: Number(recentSignups),
       serverUptime: Math.floor(process.uptime())
     });
   } catch (err) {
@@ -896,32 +1099,58 @@ app.get('/api/admin/stats', authenticateToken, (req, res) => {
 });
 
 // Enhanced users list with level + progress
-app.get('/api/admin/users', authenticateToken, (req, res) => {
+app.get('/api/admin/users', authenticateToken, async (req, res) => {
   try {
-    const adminUser = db.prepare('SELECT email FROM users WHERE id = ?').get(req.user.id);
-    if (!_isAdmin(adminUser.email)) return res.status(403).json({ error: 'Unauthorised' });
+    const adminUserRes = await db.execute({
+      sql: 'SELECT email FROM users WHERE id = ?',
+      args: [req.user.id]
+    });
+    const adminUser = adminUserRes.rows[0];
+    if (!(await _isAdmin(adminUser.email))) return res.status(403).json({ error: 'Unauthorised' });
 
-    const users = db.prepare('SELECT id, email, created_at FROM users').all();
+    const usersRes = await db.execute('SELECT id, email, created_at FROM users');
+    const users = usersRes.rows;
 
-    const enriched = users.map(u => {
-      const levelData = db.prepare("SELECT value FROM settings WHERE key = 'level' AND user_id = ?").get(u.id);
-      const nameData = db.prepare("SELECT value FROM settings WHERE key = 'student_name' AND user_id = ?").get(u.id);
-      const subjectsCount = db.prepare('SELECT COUNT(*) as count FROM subjects WHERE user_id = ?').get(u.id).count;
-      const totalChapters = db.prepare('SELECT COUNT(*) as count FROM chapters c JOIN subjects s ON c.subject_id = s.id WHERE s.user_id = ?').get(u.id).count;
-      const doneChapters = db.prepare("SELECT COUNT(*) as count FROM chapters c JOIN subjects s ON c.subject_id = s.id WHERE s.user_id = ? AND c.status = 'Done'").get(u.id).count;
-      const totalMarks = db.prepare('SELECT COALESCE(SUM(c.marks),0) as total FROM chapters c JOIN subjects s ON c.subject_id = s.id WHERE s.user_id = ?').get(u.id).total;
-      const doneMarks = db.prepare("SELECT COALESCE(SUM(c.marks),0) as total FROM chapters c JOIN subjects s ON c.subject_id = s.id WHERE s.user_id = ? AND c.status = 'Done'").get(u.id).total;
+    const enriched = await Promise.all(users.map(async u => {
+      const levelDataRes = await db.execute({
+        sql: "SELECT value FROM settings WHERE key = 'level' AND user_id = ?",
+        args: [u.id]
+      });
+      const nameDataRes = await db.execute({
+        sql: "SELECT value FROM settings WHERE key = 'student_name' AND user_id = ?",
+        args: [u.id]
+      });
+      const subjectsCount = (await db.execute({
+        sql: 'SELECT COUNT(*) as count FROM subjects WHERE user_id = ?',
+        args: [u.id]
+      })).rows[0].count;
+      const totalChapters = (await db.execute({
+        sql: 'SELECT COUNT(*) as count FROM chapters c JOIN subjects s ON c.subject_id = s.id WHERE s.user_id = ?',
+        args: [u.id]
+      })).rows[0].count;
+      const doneChapters = (await db.execute({
+        sql: "SELECT COUNT(*) as count FROM chapters c JOIN subjects s ON c.subject_id = s.id WHERE s.user_id = ? AND c.status = 'Done'",
+        args: [u.id]
+      })).rows[0].count;
+      const totalMarks = (await db.execute({
+        sql: 'SELECT COALESCE(SUM(c.marks),0) as total FROM chapters c JOIN subjects s ON c.subject_id = s.id WHERE s.user_id = ?',
+        args: [u.id]
+      })).rows[0].total;
+      const doneMarks = (await db.execute({
+        sql: "SELECT COALESCE(SUM(c.marks),0) as total FROM chapters c JOIN subjects s ON c.subject_id = s.id WHERE s.user_id = ? AND c.status = 'Done'",
+        args: [u.id]
+      })).rows[0].total;
 
       return {
         ...u,
-        name: nameData?.value || 'Unknown',
-        level: levelData?.value || 'foundation',
-        subjects_count: subjectsCount,
-        total_chapters: totalChapters,
-        done_chapters: doneChapters,
-        progress: totalMarks > 0 ? Math.round((doneMarks / totalMarks) * 100) : 0
+        name: nameDataRes.rows[0]?.value || 'Unknown',
+        level: levelDataRes.rows[0]?.value || 'foundation',
+        subjects_count: Number(subjectsCount),
+        total_chapters: Number(totalChapters),
+        done_chapters: Number(doneChapters),
+        progress: totalMarks > 0 ? Math.round((Number(doneMarks) / Number(totalMarks)) * 100) : 0
       };
-    });
+    }));
 
     res.json(enriched);
   } catch (err) {
@@ -930,21 +1159,41 @@ app.get('/api/admin/users', authenticateToken, (req, res) => {
 });
 
 // Detailed user view
-app.get('/api/admin/users/:id/details', authenticateToken, (req, res) => {
+app.get('/api/admin/users/:id/details', authenticateToken, async (req, res) => {
   try {
-    const adminUser = db.prepare('SELECT email FROM users WHERE id = ?').get(req.user.id);
-    if (!_isAdmin(adminUser.email)) return res.status(403).json({ error: 'Unauthorised' });
+    const adminUserRes = await db.execute({
+      sql: 'SELECT email FROM users WHERE id = ?',
+      args: [req.user.id]
+    });
+    const adminUser = adminUserRes.rows[0];
+    if (!(await _isAdmin(adminUser.email))) return res.status(403).json({ error: 'Unauthorised' });
 
-    const user = db.prepare('SELECT id, email, created_at FROM users WHERE id = ?').get(req.params.id);
+    const userRes = await db.execute({
+      sql: 'SELECT id, email, created_at FROM users WHERE id = ?',
+      args: [req.params.id]
+    });
+    const user = userRes.rows[0];
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    const settings = db.prepare('SELECT * FROM settings WHERE user_id = ?').all(user.id);
+    const settingsRes = await db.execute({
+      sql: 'SELECT * FROM settings WHERE user_id = ?',
+      args: [user.id]
+    });
+    const settings = settingsRes.rows;
     const settingsObj = {};
     settings.forEach(s => { settingsObj[s.key] = s.value; });
 
-    const subjects = db.prepare('SELECT * FROM subjects WHERE user_id = ?').all(user.id);
-    const subjectsWithChapters = subjects.map(sub => {
-      const chapters = db.prepare('SELECT * FROM chapters WHERE subject_id = ? ORDER BY sort_order').all(sub.id);
+    const subjectsRes = await db.execute({
+      sql: 'SELECT * FROM subjects WHERE user_id = ?',
+      args: [user.id]
+    });
+    const subjects = subjectsRes.rows;
+    const subjectsWithChapters = await Promise.all(subjects.map(async sub => {
+      const chaptersRes = await db.execute({
+        sql: 'SELECT * FROM chapters WHERE subject_id = ? ORDER BY sort_order',
+        args: [sub.id]
+      });
+      const chapters = chaptersRes.rows;
       const doneMarks = chapters.filter(c => c.status === 'Done').reduce((sum, c) => sum + c.marks, 0);
       return {
         ...sub,
@@ -952,7 +1201,7 @@ app.get('/api/admin/users/:id/details', authenticateToken, (req, res) => {
         done_marks: doneMarks,
         progress: sub.total_marks > 0 ? Math.round((doneMarks / sub.total_marks) * 100) : 0
       };
-    });
+    }));
 
     res.json({
       ...user,
@@ -965,24 +1214,37 @@ app.get('/api/admin/users/:id/details', authenticateToken, (req, res) => {
 });
 
 // Admin change user level
-app.put('/api/admin/users/:id/level', authenticateToken, (req, res) => {
+app.put('/api/admin/users/:id/level', authenticateToken, async (req, res) => {
   try {
-    const adminUser = db.prepare('SELECT email FROM users WHERE id = ?').get(req.user.id);
-    if (!_isAdmin(adminUser.email)) return res.status(403).json({ error: 'Unauthorised' });
+    const adminUserRes = await db.execute({
+      sql: 'SELECT email FROM users WHERE id = ?',
+      args: [req.user.id]
+    });
+    const adminUser = adminUserRes.rows[0];
+    if (!(await _isAdmin(adminUser.email))) return res.status(403).json({ error: 'Unauthorised' });
 
     const { level } = req.body;
     if (!['foundation', 'inter', 'final'].includes(level)) {
       return res.status(400).json({ error: 'Invalid level' });
     }
 
-    const targetUser = db.prepare('SELECT id FROM users WHERE id = ?').get(req.params.id);
-    if (!targetUser) return res.status(404).json({ error: 'User not found' });
+    const targetUserRes = await db.execute({
+      sql: 'SELECT id FROM users WHERE id = ?',
+      args: [req.params.id]
+    });
+    if (!targetUserRes.rows[0]) return res.status(404).json({ error: 'User not found' });
 
     // Update level setting
-    db.prepare("INSERT OR REPLACE INTO settings (user_id, key, value) VALUES (?, 'level', ?)").run(req.params.id, level);
+    await db.execute({
+      sql: "INSERT OR REPLACE INTO settings (user_id, key, value) VALUES (?, 'level', ?)",
+      args: [req.params.id, level]
+    });
     // Wipe and reseed
-    db.prepare('DELETE FROM subjects WHERE user_id = ?').run(req.params.id);
-    seedDataForUser(parseInt(req.params.id), level, false);
+    await db.execute({
+      sql: 'DELETE FROM subjects WHERE user_id = ?',
+      args: [req.params.id]
+    });
+    await seedDataForUser(parseInt(req.params.id), level, false);
 
     res.json({ success: true });
   } catch (err) {
@@ -993,17 +1255,25 @@ app.put('/api/admin/users/:id/level', authenticateToken, (req, res) => {
 // Broadcast notifications
 app.post('/api/admin/notify', authenticateToken, async (req, res) => {
   try {
-    const adminUser = db.prepare('SELECT email FROM users WHERE id = ?').get(req.user.id);
-    if (!_isAdmin(adminUser.email)) return res.status(403).json({ error: 'Unauthorised' });
+    const adminUserRes = await db.execute({
+      sql: 'SELECT email FROM users WHERE id = ?',
+      args: [req.user.id]
+    });
+    const adminUser = adminUserRes.rows[0];
+    if (!(await _isAdmin(adminUser.email))) return res.status(403).json({ error: 'Unauthorised' });
 
     const { targetUserId, subject, htmlContent } = req.body;
     
     let targets = [];
     if (targetUserId === 'all') {
-      targets = db.prepare('SELECT email FROM users').all();
+      const targetsRes = await db.execute('SELECT email FROM users');
+      targets = targetsRes.rows;
     } else {
-      const u = db.prepare('SELECT email FROM users WHERE id = ?').get(targetUserId);
-      if (u) targets.push(u);
+      const uRes = await db.execute({
+        sql: 'SELECT email FROM users WHERE id = ?',
+        args: [targetUserId]
+      });
+      if (uRes.rows[0]) targets.push(uRes.rows[0]);
     }
 
     let successCount = 0;
@@ -1019,13 +1289,20 @@ app.post('/api/admin/notify', authenticateToken, async (req, res) => {
 });
 
 // Delete user
-app.delete('/api/admin/users/:id', authenticateToken, (req, res) => {
+app.delete('/api/admin/users/:id', authenticateToken, async (req, res) => {
   try {
-    const adminUser = db.prepare('SELECT email FROM users WHERE id = ?').get(req.user.id);
-    if (!_isAdmin(adminUser.email)) return res.status(403).json({ error: 'Unauthorised' });
+    const adminUserRes = await db.execute({
+      sql: 'SELECT email FROM users WHERE id = ?',
+      args: [req.user.id]
+    });
+    const adminUser = adminUserRes.rows[0];
+    if (!(await _isAdmin(adminUser.email))) return res.status(403).json({ error: 'Unauthorised' });
     if(req.user.id === parseInt(req.params.id)) return res.status(400).json({ error: 'Cannot delete yourself' });
 
-    db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
+    await db.execute({
+      sql: 'DELETE FROM users WHERE id = ?',
+      args: [req.params.id]
+    });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1036,18 +1313,4 @@ app.delete('/api/admin/users/:id', authenticateToken, (req, res) => {
 // match one above, send back React's index.html file.
 app.use((req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
-});
-
-// ==================== START SERVER ====================
-
-app.listen(PORT, () => {
-  console.log(`
-  ╔══════════════════════════════════════════════╗
-  ║   MVPrep - Backend Server                    ║
-  ║   Running on http://localhost:${PORT}           ║
-  ╚══════════════════════════════════════════════╝
-  `);
-  
-  // Launch Background Cron Daemons
-  startEmailCrons();
 });
