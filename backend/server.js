@@ -75,7 +75,7 @@ app.post('/api/register', async (req, res) => {
 
     const token = jwt.sign({ id: userId, email }, JWT_SECRET);
 
-    // Send Welcome Email Notification
+    // Send Welcome Email Notification in background
     const htmlContent = `
       <h2 style="color: #4CAF50;">Welcome to MVPrep! 🏛️</h2>
       <p>Hello ${name || 'Aspirant'},</p>
@@ -83,7 +83,7 @@ app.post('/api/register', async (req, res) => {
       <br>
       <p>Best of luck with your CA exams! 💪</p>
     `;
-    sendEmail(email, 'Welcome to MVPrep', htmlContent);
+    sendEmail(email, 'Welcome to MVPrep', htmlContent).catch(e => console.error('Background Email Error:', e));
 
     res.json({ success: true, token, user: { id: userId, email } });
   } catch (err) {
@@ -974,13 +974,14 @@ app.post('/api/notify-test', authenticateToken, async (req, res) => {
       <p>Your Gmail notification system is correctly bound and working perfectly!</p>
     `;
 
-    const success = await sendEmail(user.email, 'MVPrep - Setup Success!', htmlContent);
+    // Fire and forget (it will respond instantly to user)
+    sendEmail(user.email, 'MVPrep - Setup Success!', htmlContent)
+      .then(success => {
+        if (!success) console.error('Background Test Email Failed for', user.email);
+      })
+      .catch(e => console.error('Background Test Email Exception:', e));
     
-    if (success) {
-      res.json({ success: true, message: 'Test email delivered successfully!' });
-    } else {
-      res.status(500).json({ error: 'Mail delivery failed. Check your App Password tokens in the .env file and ensure Gmail security lets less secure apps or app passwords through.' });
-    }
+    res.json({ success: true, message: 'Test email has been queued and should arrive shortly.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1279,12 +1280,12 @@ app.post('/api/admin/notify', authenticateToken, async (req, res) => {
     }
 
     let successCount = 0;
+    // Process in background
     for (const t of targets) {
-       const sent = await sendEmail(t.email, subject, htmlContent);
-       if(sent) successCount++;
+       sendEmail(t.email, subject, htmlContent).catch(e => console.error('Admin Notify Background Error:', e));
     }
     
-    res.json({ success: true, sentCount: successCount });
+    res.json({ success: true, message: `Notification broadcast started for ${targets.length} users.` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
