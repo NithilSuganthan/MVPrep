@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { getAdminStats, getAdminUsers, getAdminUserDetails, changeAdminUserLevel, sendAdminNotification, deleteAdminUser, getAdminList, addAdmin, removeAdmin } from '../api';
+import { getAdminStats, getAdminUsers, getAdminUserDetails, changeAdminUserLevel, sendAdminNotification, deleteAdminUser, getAdminList, addAdmin, removeAdmin, login } from '../api';
 import toast from 'react-hot-toast';
-import { FiUsers, FiMail, FiTrash2, FiShield, FiAlertTriangle, FiActivity, FiDatabase, FiClock, FiSearch, FiX, FiChevronDown, FiChevronUp, FiEye, FiServer, FiBook, FiBarChart2, FiUserPlus, FiLock } from 'react-icons/fi';
+import { FiUsers, FiMail, FiTrash2, FiShield, FiAlertTriangle, FiActivity, FiDatabase, FiClock, FiSearch, FiX, FiChevronDown, FiChevronUp, FiEye, FiServer, FiBook, FiBarChart2, FiUserPlus, FiLock, FiLogIn } from 'react-icons/fi';
 
 const levelLabels = { foundation: 'Foundation', inter: 'Intermediate', final: 'Final' };
 const levelColors = { foundation: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30', inter: 'bg-blue-500/20 text-blue-400 border-blue-500/30', final: 'bg-purple-500/20 text-purple-400 border-purple-500/30' };
@@ -24,6 +24,9 @@ export default function Admin() {
   const [selectedUser, setSelectedUser] = useState(null);
   const [userDetailLoading, setUserDetailLoading] = useState(false);
   const [newAdminEmail, setNewAdminEmail] = useState('');
+  const [adminLoginEmail, setAdminLoginEmail] = useState('');
+  const [adminLoginPassword, setAdminLoginPassword] = useState('');
+  const [adminLoginLoading, setAdminLoginLoading] = useState(false);
   
   const [notifyForm, setNotifyForm] = useState({
     targetUserId: 'all',
@@ -46,6 +49,22 @@ export default function Admin() {
   };
 
   useEffect(() => { fetchData(); }, []);
+
+  const handleAdminLogin = async (e) => {
+    e.preventDefault();
+    setAdminLoginLoading(true);
+    try {
+      const res = await login({ email: adminLoginEmail, password: adminLoginPassword });
+      localStorage.setItem('token', res.data.token);
+      toast.success('Authenticated! Verifying admin access...', { icon: '🔐' });
+      setError(null);
+      setLoading(true);
+      await fetchData();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Login failed. Check credentials.');
+    }
+    setAdminLoginLoading(false);
+  };
 
   const handleDelete = async (id, email) => {
     if(!window.confirm(`⚠️ PERMANENT ACTION\n\nDelete user "${email}" and ALL their data?\n\nThis cannot be undone.`)) return;
@@ -139,10 +158,76 @@ export default function Admin() {
   if (loading) return <div className="text-center mt-20 animate-pulse text-[var(--border)]">Verifying Master Clearance...</div>;
 
   if (error) return (
-    <div className="text-center py-20 animate-fade-in max-w-lg mx-auto">
-      <FiShield size={64} className="mx-auto mb-6 text-red-500 opacity-50" />
-      <h1 className="text-3xl font-bold tracking-tight text-white mb-2">Access Denied</h1>
-      <p className="text-[var(--text-muted)]">{error}</p>
+    <div className="min-h-[80vh] flex items-center justify-center px-4 animate-fade-in">
+      <div className="card w-full max-w-md bg-[var(--surface)] border border-red-900/30 p-8 shadow-[0_0_50px_rgba(239,68,68,0.1)] relative overflow-hidden group">
+        <div className="absolute top-0 right-0 p-10 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity">
+          <FiShield size={120} />
+        </div>
+        
+        <div className="text-center mb-8 relative">
+          <div className="w-16 h-16 bg-gradient-to-br from-red-600 to-orange-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-[0_0_20px_rgba(239,68,68,0.3)]">
+            <FiLock size={32} className="text-white" />
+          </div>
+          <h1 className="text-3xl font-black text-white mb-2 tracking-tight">Admin Portal</h1>
+          <p className="text-[var(--text-muted)] text-sm italic">Master Clearance Required</p>
+        </div>
+
+        <form onSubmit={handleAdminLogin} className="space-y-5 relative">
+          <div>
+            <label className="block text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-widest mb-2 ml-1">Admin Identity</label>
+            <div className="relative">
+              <FiMail className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
+              <input 
+                type="email" 
+                required
+                placeholder="admin@mvprep.cloud"
+                value={adminLoginEmail}
+                onChange={(e) => setAdminLoginEmail(e.target.value)}
+                className="w-full bg-black/40 border border-red-900/20 rounded-xl px-12 py-3.5 text-white placeholder:text-[var(--text-muted)] focus:outline-none focus:border-red-500/50 transition-all text-sm"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-widest mb-2 ml-1">Access Cipher</label>
+            <div className="relative">
+              <FiLock className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
+              <input 
+                type="password" 
+                required
+                placeholder="••••••••••••"
+                value={adminLoginPassword}
+                onChange={(e) => setAdminLoginPassword(e.target.value)}
+                className="w-full bg-black/40 border border-red-900/20 rounded-xl px-12 py-3.5 text-white placeholder:text-[var(--text-muted)] focus:outline-none focus:border-red-500/50 transition-all text-sm"
+              />
+            </div>
+          </div>
+
+          <button 
+            type="submit" 
+            disabled={adminLoginLoading}
+            className="w-full bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 py-4 rounded-xl text-white font-black text-sm uppercase tracking-widest shadow-lg shadow-red-900/20 transition-all flex items-center justify-center gap-3 active:scale-[0.98] disabled:opacity-50"
+          >
+            {adminLoginLoading ? (
+              <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+            ) : (
+              <>
+                <FiLogIn /> Authenticate
+              </>
+            )}
+          </button>
+        </form>
+
+        <div className="mt-8 pt-6 border-t border-red-900/20 text-center">
+          <p className="text-[var(--text-muted)] text-[10px] uppercase font-bold tracking-tighter">
+            <FiShield size={10} className="inline mr-1 text-red-500" /> Authorized Personnel Only
+          </p>
+          <div className="mt-4 flex justify-center gap-4 text-xs opacity-30">
+            <span className="hover:opacity-100 transition-opacity cursor-help">IP: LOGGED</span>
+            <span className="hover:opacity-100 transition-opacity cursor-help">MAC: VERIFIED</span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 
