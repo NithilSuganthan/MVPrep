@@ -1327,12 +1327,15 @@ app.delete('/api/admin/users/:id', authenticateToken, async (req, res) => {
   }
 });
 
+// ==================== FRONTEND SERVING ====================
+
 // Serve static files from the React app
 app.use(express.static(path.join(__dirname, '../frontend/dist')));
 
 // The "catchall" handler: for any request that doesn't
 // match one above, send back React's index.html file.
-app.use((req, res) => {
+app.get('*', (req, res) => {
+  console.log(`Fallback routing for: ${req.url}`);
   res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
 });
 
