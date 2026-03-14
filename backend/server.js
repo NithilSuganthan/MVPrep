@@ -41,6 +41,8 @@ bootstrap();
 app.use(cors());
 app.use(express.json());
 
+app.get('/api/ping', (req, res) => res.json({ pong: true, time: new Date().toISOString() }));
+
 // Serve static files from the React app
 app.use(express.static(path.join(__dirname, '../frontend/dist')));
 
