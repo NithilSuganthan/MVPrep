@@ -12,7 +12,7 @@ const {
 } = require('@simplewebauthn/server');
 const crypto = require('crypto');
 const { db, seedDataForUser, initDB } = require('./src/database');
-const { startEmailCrons, sendEmail } = require('./src/email');
+const { startEmailCrons, sendEmail, verifyTransporter } = require('./src/email');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'ca-revision-architect-secret';
 const app = express();
@@ -1007,6 +1007,23 @@ app.get('/api/admin/admins', authenticateToken, async (req, res) => {
     if (!(await _isAdmin(adminUser.email))) return res.status(403).json({ error: 'Unauthorised' });
     const adminsRes = await db.execute('SELECT email FROM admins');
     res.json(adminsRes.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// SMTP Status Health Check
+app.get('/api/admin/smtp-status', authenticateToken, async (req, res) => {
+  try {
+    const adminUserRes = await db.execute({
+      sql: 'SELECT email FROM users WHERE id = ?',
+      args: [req.user.id]
+    });
+    const adminUser = adminUserRes.rows[0];
+    if (!(await _isAdmin(adminUser.email))) return res.status(403).json({ error: 'Unauthorised' });
+    
+    const status = await verifyTransporter();
+    res.json(status);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

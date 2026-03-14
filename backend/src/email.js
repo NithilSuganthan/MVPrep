@@ -97,4 +97,13 @@ const startEmailCrons = () => {
   console.log("Email Notification Cron Jobs started.");
 };
 
-module.exports = { transporter, sendEmail, startEmailCrons };
+const verifyTransporter = async () => {
+  try {
+    await transporter.verify();
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+};
+
+module.exports = { transporter, sendEmail, startEmailCrons, verifyTransporter };
