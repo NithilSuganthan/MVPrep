@@ -36,15 +36,23 @@ async function bootstrap() {
   }
 }
 
-bootstrap();
-
+// ==================== MIDDLEWARE ====================
 app.use(cors());
 app.use(express.json());
 
-app.get('/api/ping', (req, res) => res.json({ pong: true, time: new Date().toISOString() }));
-
-// Serve static files from the React app
-app.use(express.static(path.join(__dirname, '../frontend/dist')));
+// ==================== CONNECTIVITY TEST ====================
+app.get('/api/ping', (req, res) => {
+  res.json({ 
+    pong: true, 
+    time: new Date().toISOString(),
+    env: {
+      has_gmail_user: !!process.env.GMAIL_USER,
+      has_gmail_pass: !!process.env.GMAIL_APP_PASSWORD,
+      has_turso_url: !!process.env.TURSO_DATABASE_URL,
+      node_env: process.env.NODE_ENV
+    }
+  });
+});
 
 // ==================== AUTHENTICATION ====================
 
@@ -1331,8 +1339,14 @@ app.delete('/api/admin/users/:id', authenticateToken, async (req, res) => {
   }
 });
 
+// Serve static files from the React app
+app.use(express.static(path.join(__dirname, '../frontend/dist')));
+
 // The "catchall" handler: for any request that doesn't
 // match one above, send back React's index.html file.
 app.use((req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
 });
+
+// Initialize DB and start server - CALL AT THE VERY END
+bootstrap();
