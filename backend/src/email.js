@@ -31,7 +31,6 @@ const sendEmail = async (to, subject, html) => {
   }
 };
 
-// Start automated email crons
 const startEmailCrons = () => {
   // Cron schedule: Runs every day at 8:00 AM (server time).
   // "0 8 * * *"
@@ -39,17 +38,22 @@ const startEmailCrons = () => {
     console.log('Running daily morning study reminder cron job...');
     try {
       // Find all users who are currently registered
-      const users = db.prepare('SELECT id, email FROM users').all();
+      const usersRes = await db.execute('SELECT id, email FROM users');
+      const users = usersRes.rows;
       
       for (const user of users) {
         // Find subject stats for this user
-        const incompleteChapters = db.prepare(`
-          SELECT c.name, s.name as subject_name 
-          FROM chapters c
-          JOIN subjects s ON c.subject_id = s.id
-          WHERE s.user_id = ? AND c.status != 'Done' AND c.priority = 'A'
-          LIMIT 3
-        `).all(user.id);
+        const incompleteChaptersRes = await db.execute({
+          sql: `
+            SELECT c.name, s.name as subject_name 
+            FROM chapters c
+            JOIN subjects s ON c.subject_id = s.id
+            WHERE s.user_id = ? AND c.status != 'Done' AND c.priority = 'A'
+            LIMIT 3
+          `,
+          args: [user.id]
+        });
+        const incompleteChapters = incompleteChaptersRes.rows;
         
         let htmlContent = `
           <h2 style="color: #4CAF50;">Good Morning, CA Aspirant! 🌅</h2>
