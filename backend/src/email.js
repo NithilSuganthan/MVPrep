@@ -4,13 +4,18 @@ const cron = require('node-cron');
 const { db } = require('./database'); // Assuming database is exported like this
 
 // Setting up the Nodemailer transporter.
-// By default, you need to turn on "App Passwords" for your exact Gmail account to authenticate.
+// Use explicit host/port/secure settings as they are more reliable on many cloud hosts.
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
+  host: 'smtp.gmail.com',
+  port: 465,
+  secure: true, // Use SSL
   auth: {
     user: process.env.GMAIL_USER || 'your.email@gmail.com',
     pass: process.env.GMAIL_APP_PASSWORD || 'your-app-password',
   },
+  connectionTimeout: 10000, // 10 seconds timeout
+  greetingTimeout: 5000,
+  socketTimeout: 15000,
 });
 
 // Helper function to send an email
@@ -23,10 +28,15 @@ const sendEmail = async (to, subject, html) => {
       html,
     };
     const info = await transporter.sendMail(mailOptions);
-    console.log('Email sent successfully: ' + info.messageId);
+    console.log('✅ Email sent successfully: ' + info.messageId);
     return true;
   } catch (error) {
-    console.error('Error sending email:', error);
+    console.error('❌ Email delivery failed:', {
+      error: error.message,
+      code: error.code,
+      command: error.command,
+      address: to
+    });
     return false;
   }
 };
