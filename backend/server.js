@@ -26,13 +26,16 @@ async function bootstrap() {
     console.log('✅ Database connected & schema ready.');
 
     app.listen(PORT, () => {
-      console.log(`🚀 MVPrep Server running on port ${PORT}`);
+      console.log(`🚀 MVPrep Server running on port ${PORT} (Survival Mode)`);
       console.log('📅 Starting Study Reminder crons...');
       startEmailCrons();
     });
   } catch (err) {
     console.error('❌ Database Initialization Failed:', err);
-    process.exit(1);
+    // Survival mode: start listening anyway so we can diagnose via API
+    app.listen(PORT, () => {
+      console.log(`🚀 MVPrep Server running on port ${PORT} (DATABASE FAILED)`);
+    });
   }
 }
 
