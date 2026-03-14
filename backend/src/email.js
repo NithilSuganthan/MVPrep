@@ -7,8 +7,8 @@ const { db } = require('./database'); // Assuming database is exported like this
 // Use SMTP pooling to reuse connections for faster delivery.
 const transporter = nodemailer.createTransport({
   host: 'smtp.gmail.com',
-  port: 465,
-  secure: true, // Use SSL
+  port: 587,
+  secure: false, // Use STARTTLS
   pool: true,   // Enable pooling
   maxConnections: 5,
   maxMessages: 100,
