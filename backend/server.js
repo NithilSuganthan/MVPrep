@@ -40,7 +40,7 @@ async function bootstrap() {
 app.use(cors());
 app.use(express.json());
 
-// ==================== CONNECTIVITY TEST ====================
+app.get('/ping', (req, res) => res.json({ pong: true, location: 'root' }));
 app.get('/api/ping', (req, res) => {
   res.json({ 
     pong: true, 
