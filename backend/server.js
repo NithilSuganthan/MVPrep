@@ -1334,9 +1334,21 @@ app.use(express.static(path.join(__dirname, '../frontend/dist')));
 
 // The "catchall" handler: for any request that doesn't
 // match one above, send back React's index.html file.
-app.use((req, res) => {
-  console.log(`Fallback routing for: ${req.url}`);
-  res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
+app.get('/:path*', (req, res) => {
+  const indexPath = path.join(__dirname, '../frontend/dist/index.html');
+  console.log(`Fallback routing for: ${req.url} -> serving ${indexPath}`);
+  res.sendFile(indexPath, (err) => {
+    if (err) {
+      console.error('Error sending index.html:', err);
+      res.status(500).send("Static file serving error: " + err.message);
+    }
+  });
+});
+
+// Global Error Handler
+app.use((err, req, res, next) => {
+  console.error('💥 UNHANDLED ERROR:', err);
+  res.status(500).json({ error: 'Internal Server Error', details: err.message });
 });
 
 // Initialize DB and start server - CALL AT THE VERY END
