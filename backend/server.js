@@ -729,12 +729,63 @@ app.post('/api/pomodoro', authenticateToken, async (req, res) => {
 
 // ==================== STUDY ACTIVITY HEATMAP ====================
 
+app.post('/api/focus-time', authenticateToken, async (req, res) => {
+  try {
+    const { focusSeconds = 0, restSeconds = 0 } = req.body;
+    const today = new Date().toISOString().split('T')[0];
+
+    if (focusSeconds > 0) {
+      await db.execute({
+        sql: `
+          INSERT INTO study_activity (user_id, activity_date, activity_type, count)
+          VALUES (?, ?, 'focus_seconds', ?)
+          ON CONFLICT(user_id, activity_date, activity_type) DO UPDATE SET count = count + ?
+        `,
+        args: [req.user.id, today, focusSeconds, focusSeconds]
+      });
+    }
+
+    if (restSeconds > 0) {
+      await db.execute({
+        sql: `
+          INSERT INTO study_activity (user_id, activity_date, activity_type, count)
+          VALUES (?, ?, 'rest_seconds', ?)
+          ON CONFLICT(user_id, activity_date, activity_type) DO UPDATE SET count = count + ?
+        `,
+        args: [req.user.id, today, restSeconds, restSeconds]
+      });
+    }
+
+    // Get updated totals for today
+    const focusRes = await db.execute({
+      sql: "SELECT count FROM study_activity WHERE user_id = ? AND activity_date = ? AND activity_type = 'focus_seconds'",
+      args: [req.user.id, today]
+    });
+    const restRes = await db.execute({
+      sql: "SELECT count FROM study_activity WHERE user_id = ? AND activity_date = ? AND activity_type = 'rest_seconds'",
+      args: [req.user.id, today]
+    });
+
+    res.json({
+      success: true,
+      focusSecondsToday: focusRes.rows[0]?.count || 0,
+      restSecondsToday: restRes.rows[0]?.count || 0
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/activity', authenticateToken, async (req, res) => {
   try {
-    // Get last 365 days of activity
+    // Get last 365 days of activity, grouping regular activity vs focus/rest
     const activitiesRes = await db.execute({
       sql: `
-        SELECT activity_date, SUM(count) as total_count
+        SELECT 
+          activity_date, 
+          SUM(CASE WHEN activity_type NOT IN ('focus_seconds', 'rest_seconds') THEN count ELSE 0 END) as total_count,
+          SUM(CASE WHEN activity_type = 'focus_seconds' THEN count ELSE 0 END) as focus_seconds,
+          SUM(CASE WHEN activity_type = 'rest_seconds' THEN count ELSE 0 END) as rest_seconds
         FROM study_activity
         WHERE user_id = ? AND activity_date >= date('now', '-365 days')
         GROUP BY activity_date
@@ -744,20 +795,23 @@ app.get('/api/activity', authenticateToken, async (req, res) => {
     });
     const activities = activitiesRes.rows;
 
-    // Calculate current streak
+    // Calculate current streak based on days with REGULAR activity or FOCUS time
     let currentStreak = 0;
     let longestStreak = 0;
     let tempStreak = 0;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
+    // Filter to days that actually have study inputs
+    const activeDates = activities.filter(a => a.total_count > 0 || a.focus_seconds > 0);
+    const dateSet = new Set(activeDates.map(a => a.activity_date));
+
     // Check backwards from today for current streak
     for (let i = 0; i < 365; i++) {
       const checkDate = new Date(today);
       checkDate.setDate(checkDate.getDate() - i);
       const dateStr = checkDate.toISOString().split('T')[0];
-      const found = activities.find(a => a.activity_date === dateStr);
-      if (found) {
+      if (dateSet.has(dateStr)) {
         currentStreak++;
       } else {
         break;
@@ -765,7 +819,6 @@ app.get('/api/activity', authenticateToken, async (req, res) => {
     }
 
     // Calculate longest streak
-    const dateSet = new Set(activities.map(a => a.activity_date));
     const allDates = [];
     for (let i = 364; i >= 0; i--) {
       const d = new Date(today);
@@ -781,8 +834,8 @@ app.get('/api/activity', authenticateToken, async (req, res) => {
       }
     });
 
-    const totalActiveDays = activities.length;
-    const totalActions = activities.reduce((sum, a) => sum + a.total_count, 0);
+    const totalActiveDays = activeDates.length;
+    const totalActions = activeDates.reduce((sum, a) => sum + a.total_count, 0);
 
     res.json({
       activities,
@@ -1334,7 +1387,7 @@ app.use(express.static(path.join(__dirname, '../frontend/dist')));
 
 // The "catchall" handler: for any request that doesn't
 // match one above, send back React's index.html file.
-app.get('/:path*', (req, res) => {
+app.use((req, res, next) => {
   const indexPath = path.join(__dirname, '../frontend/dist/index.html');
   console.log(`Fallback routing for: ${req.url} -> serving ${indexPath}`);
   res.sendFile(indexPath, (err) => {

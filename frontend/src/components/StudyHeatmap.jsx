@@ -29,7 +29,13 @@ export default function StudyHeatmap() {
     if (!data) return { grid: [], monthLabels: [] };
 
     const activityMap = {};
-    data.activities.forEach(a => { activityMap[a.activity_date] = a.total_count; });
+    const focusMap = {};
+    const restMap = {};
+    data.activities.forEach(a => { 
+      activityMap[a.activity_date] = a.total_count; 
+      focusMap[a.activity_date] = a.focus_seconds || 0;
+      restMap[a.activity_date] = a.rest_seconds || 0;
+    });
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -66,6 +72,8 @@ export default function StudyHeatmap() {
       currentWeek.push({
         date: dateStr,
         count: activityMap[dateStr] || 0,
+        focusSeconds: focusMap[dateStr] || 0,
+        restSeconds: restMap[dateStr] || 0,
         display: `${currentDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}`,
       });
 
@@ -75,13 +83,21 @@ export default function StudyHeatmap() {
     if (currentWeek.length > 0) {
       // Pad the last week
       while (currentWeek.length < 7) {
-        currentWeek.push({ date: '', count: -1, display: '' });
+        currentWeek.push({ date: '', count: -1, focusSeconds: 0, restSeconds: 0, display: '' });
       }
       weeks.push(currentWeek);
     }
 
     return { grid: weeks, monthLabels: labels };
   }, [data]);
+
+  const formatDuration = (seconds) => {
+    if (!seconds) return null;
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}m`;
+  };
 
   if (loading) return <div className="card animate-pulse h-40 flex items-center justify-center text-[var(--text-muted)]">Loading activity...</div>;
   if (!data) return null;
@@ -144,16 +160,30 @@ export default function StudyHeatmap() {
           {/* Weeks */}
           {grid.map((week, wi) => (
             <div key={wi} className="flex flex-col gap-[2px]">
-              {week.map((day, di) => (
-                <div
-                  key={di}
-                  className={`w-[12px] h-[12px] rounded-[2px] transition-all duration-150 ${
-                    day.count < 0 ? 'bg-transparent' : getColor(day.count)
-                  } ${day.count >= 0 ? 'hover:ring-1 hover:ring-white/40 cursor-pointer' : ''}`}
-                  onMouseEnter={() => day.count >= 0 && setHoveredCell({ ...day, x: wi, y: di })}
-                  onMouseLeave={() => setHoveredCell(null)}
-                />
-              ))}
+              {week.map((day, di) => {
+                // Determine color based on focus_seconds if available, otherwise fallback to actions count
+                const hasFocus = day.focusSeconds > 0;
+                let bgColor = '';
+                if (day.count < 0) bgColor = 'bg-transparent';
+                else if (hasFocus) {
+                  // Scale: <1h, <2h, <4h, 4h+
+                  if (day.focusSeconds <= 3600) bgColor = 'bg-emerald-900/70';
+                  else if (day.focusSeconds <= 7200) bgColor = 'bg-emerald-700/80';
+                  else if (day.focusSeconds <= 14400) bgColor = 'bg-emerald-500';
+                  else bgColor = 'bg-emerald-400';
+                } else {
+                  bgColor = getColor(day.count);
+                }
+
+                return (
+                  <div
+                    key={di}
+                    className={`w-[12px] h-[12px] rounded-[2px] transition-all duration-150 ${bgColor} ${day.count >= 0 ? 'hover:ring-1 hover:ring-white/40 cursor-pointer' : ''}`}
+                    onMouseEnter={() => day.count >= 0 && setHoveredCell({ ...day, x: wi, y: di })}
+                    onMouseLeave={() => setHoveredCell(null)}
+                  />
+                );
+              })}
             </div>
           ))}
         </div>
@@ -162,6 +192,12 @@ export default function StudyHeatmap() {
         {hoveredCell && (
           <div className="mt-2 text-xs text-[var(--text-muted)] bg-[var(--surface-hover)] inline-block px-3 py-1.5 rounded-lg border border-[var(--border)]">
             <span className="font-bold text-white">{hoveredCell.count} action{hoveredCell.count !== 1 ? 's' : ''}</span> on {hoveredCell.display}
+            {(hoveredCell.focusSeconds > 0 || hoveredCell.restSeconds > 0) && (
+              <span className="ml-2 pl-2 border-l border-[var(--border)]">
+                {hoveredCell.focusSeconds > 0 && <span className="text-emerald-400 mr-2">{formatDuration(hoveredCell.focusSeconds)} focused</span>}
+                {hoveredCell.restSeconds > 0 && <span className="text-orange-400">{formatDuration(hoveredCell.restSeconds)} rested</span>}
+              </span>
+            )}
           </div>
         )}
 

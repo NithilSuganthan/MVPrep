@@ -38,6 +38,7 @@ export const getSettings = () => api.get('/settings');
 export const saveSettings = (data) => api.put('/settings', data);
 export const testNotification = () => api.post('/notify-test');
 export const getActivity = () => api.get('/activity');
+export const saveFocusTime = (data) => api.post('/focus-time', data);
 
 // Admin Endpoints
 export const getAdminStats = () => api.get('/admin/stats');
