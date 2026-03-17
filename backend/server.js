@@ -1387,7 +1387,7 @@ app.use(express.static(path.join(__dirname, '../frontend/dist')));
 
 // The "catchall" handler: for any request that doesn't
 // match one above, send back React's index.html file.
-app.use((req, res, next) => {
+app.get(/^\/(.*)/, (req, res) => {
   const indexPath = path.join(__dirname, '../frontend/dist/index.html');
   console.log(`Fallback routing for: ${req.url} -> serving ${indexPath}`);
   res.sendFile(indexPath, (err) => {
