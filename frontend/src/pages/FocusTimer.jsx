@@ -1,168 +1,21 @@
-import { useState, useEffect, useRef } from 'react';
 import { FiPlay, FiPause, FiRefreshCw, FiClock, FiCoffee } from 'react-icons/fi';
-import { incrementPomodoro, saveFocusTime, getActivity } from '../api';
-import toast from 'react-hot-toast';
+import { useTimer } from '../context/TimerContext';
 
 export default function FocusTimer() {
-  const [customTimes, setCustomTimes] = useState({
-    pomodoro: 25,
-    shortBreak: 5,
-    longBreak: 15
-  });
-  const [timeLeft, setTimeLeft] = useState(customTimes.pomodoro * 60);
-  const [isActive, setIsActive] = useState(false);
-  const [mode, setMode] = useState('pomodoro'); // pomodoro, shortBreak, longBreak
-  const [alarmSound, setAlarmSound] = useState(null);
-  
-  // Track daily stats
-  const [todayFocus, setTodayFocus] = useState(0);
-  const [todayRest, setTodayRest] = useState(0);
-  const lastTickRef = useRef(null);
-
-  useEffect(() => {
-    // Preload audio on mount
-    const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
-    audio.load();
-    setAlarmSound(audio);
-
-    // Load today's stats
-    getActivity().then(res => {
-      const todayStr = new Date().toISOString().split('T')[0];
-      const todayActivity = res.data.activities.find(a => a.activity_date === todayStr);
-      if (todayActivity) {
-        setTodayFocus(todayActivity.focus_seconds || 0);
-        setTodayRest(todayActivity.rest_seconds || 0);
-      }
-    }).catch(console.error);
-  }, []);
-
-  // Sync accumulated time to backend
-  const syncTime = async (focusDelta, restDelta) => {
-    if (focusDelta === 0 && restDelta === 0) return;
-    try {
-      const res = await saveFocusTime({
-        focusSeconds: focusDelta,
-        restSeconds: restDelta
-      });
-      if (res.data.success) {
-        setTodayFocus(res.data.focusSecondsToday);
-        setTodayRest(res.data.restSecondsToday);
-      }
-    } catch (err) {
-      console.error("Failed to sync focus time", err);
-    }
-  };
-
-  useEffect(() => {
-    let interval = null;
-    if (isActive && timeLeft > 0) {
-      lastTickRef.current = Date.now();
-      
-      interval = setInterval(() => {
-        setTimeLeft(timeLeft - 1);
-      }, 1000);
-    } else if (timeLeft === 0 && isActive) {
-      setIsActive(false);
-      
-      // Calculate remaining exact delta for the final tick
-      if (lastTickRef.current) {
-        const delta = Math.floor((Date.now() - lastTickRef.current) / 1000);
-        if (delta > 0) {
-          if (mode === 'pomodoro') syncTime(delta, 0);
-          else syncTime(0, delta);
-        }
-        lastTickRef.current = null;
-      }
-
-      // Play a ringing sound
-      if (alarmSound) {
-        alarmSound.currentTime = 0;
-        alarmSound.play().catch(e => console.warn("Audio play failed:", e));
-      }
-
-      // Attempt vibrating the device
-      if (typeof navigator !== 'undefined' && navigator.vibrate) {
-        navigator.vibrate([300, 100, 300, 100, 300]); // Vibrate pattern
-      }
-
-      // Log completed pomodoro if it was a pomodoro session
-      if (mode === 'pomodoro') {
-        incrementPomodoro().catch(err => console.error("Could not save pomodoro count:", err));
-        toast.success("Pomodoro Complete! Great focus. Take a break.", { icon: '🎯' });
-      } else {
-        toast.success("Break is over! Time to get back to revision.", { icon: '⏰' });
-      }
-    }
-    
-    // Cleanup interval
-    return () => {
-      if (interval) {
-        clearInterval(interval);
-        
-        // When interval clears (pause or unmount), sync elapsed time
-        if (lastTickRef.current) {
-          const delta = Math.floor((Date.now() - lastTickRef.current) / 1000);
-          if (delta > 0) {
-            // Update local state immediately for snappy UI
-            if (mode === 'pomodoro') setTodayFocus(prev => prev + delta);
-            else setTodayRest(prev => prev + delta);
-            
-            // Sync to backend
-            if (mode === 'pomodoro') syncTime(delta, 0);
-            else syncTime(0, delta);
-          }
-        }
-      }
-    };
-  }, [isActive, timeLeft, mode]);
-
-  const toggleTimer = () => {
-    // Force audio unlock on mobile and strict desktop browsers
-    if (alarmSound && !isActive) {
-      alarmSound.play().then(() => {
-        alarmSound.pause();
-        alarmSound.currentTime = 0;
-      }).catch(e => console.log("Audio unlock deferred:", e));
-    }
-    
-    // If pausing, the useEffect cleanup will handle the sync
-    setIsActive(!isActive);
-  };
-
-  const resetTimer = () => {
-    setIsActive(false);
-    setTimeLeft(customTimes[mode] * 60);
-    lastTickRef.current = null;
-  };
-
-  const switchMode = (newMode) => {
-    setMode(newMode);
-    setIsActive(false);
-    setTimeLeft(customTimes[newMode] * 60);
-    lastTickRef.current = null;
-  };
-
-  const handleCustomTimeChange = (timerMode, value) => {
-    const val = parseInt(value) || 1;
-    setCustomTimes(prev => ({ ...prev, [timerMode]: val }));
-    if (mode === timerMode && !isActive) {
-      setTimeLeft(val * 60);
-    }
-  };
-
-  const formatTime = (seconds) => {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  };
-
-  const formatDurationHR = (seconds) => {
-    if (!seconds) return "0m";
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    if (h > 0) return `${h}h ${m}m`;
-    return `${m}m`;
-  };
+  const {
+    customTimes,
+    timeLeft,
+    isActive,
+    mode,
+    todayFocus,
+    todayRest,
+    toggleTimer,
+    resetTimer,
+    switchMode,
+    handleCustomTimeChange,
+    formatTime,
+    formatDurationHR,
+  } = useTimer();
 
   return (
     <div className="animate-fade-in space-y-6 max-w-xl mx-auto mt-10">

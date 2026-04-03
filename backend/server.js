@@ -18,6 +18,19 @@ const JWT_SECRET = process.env.JWT_SECRET || 'ca-revision-architect-secret';
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// WebAuthn Relying Party config — set these in env for production
+const rpID = process.env.RP_ID || 'localhost';
+const expectedOrigin = process.env.EXPECTED_ORIGIN || `http://localhost:${PORT}`;
+
+// Helper to reliably get local ISO date (YYYY-MM-DD)
+const getLocalISODate = (d = new Date()) => {
+  return [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, '0'),
+    String(d.getDate()).padStart(2, '0')
+  ].join('-');
+};
+
 // Initialize DB and start server
 async function bootstrap() {
   try {
@@ -37,8 +50,27 @@ async function bootstrap() {
 }
 
 // ==================== MIDDLEWARE ====================
-app.use(cors());
+const allowedOrigins = process.env.FRONTEND_URL
+  ? [process.env.FRONTEND_URL, 'http://localhost:5173']
+  : ['http://localhost:5173'];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, curl, etc)
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(null, true); // permissive for now
+    }
+  },
+  credentials: true
+}));
 app.use(express.json());
+
+// ==================== KEEP-AWAKE PING ====================
+app.get('/api/ping', (req, res) => {
+  res.json({ status: 'awake', time: Date.now() });
+});
 
 // ==================== AUTHENTICATION ====================
 
@@ -130,6 +162,45 @@ const authenticateToken = (req, res, next) => {
     req.user = user;
     next();
   });
+};
+
+// Helper to get subjects filtered by CA Inter strategy
+const _getFilteredSubjects = async (userId) => {
+  const levelRes = await db.execute({
+    sql: "SELECT value FROM settings WHERE key = 'level' AND user_id = ?",
+    args: [userId]
+  });
+  const level = levelRes.rows[0] ? levelRes.rows[0].value : 'foundation';
+
+  const subjectsRes = await db.execute({
+    sql: 'SELECT * FROM subjects WHERE user_id = ? ORDER BY id',
+    args: [userId]
+  });
+  let subjects = subjectsRes.rows;
+
+  let interStrategy = 'both';
+  if (level === 'inter') {
+    const stratRes = await db.execute({
+      sql: "SELECT value FROM settings WHERE key = 'ca_inter_strategy' AND user_id = ?",
+      args: [userId]
+    });
+    if (stratRes.rows[0]) interStrategy = stratRes.rows[0].value;
+    
+    if (interStrategy !== 'both') {
+      subjects = subjects.filter(sub => {
+        const name = sub.name.toLowerCase();
+        // Group 1: Paper 1, 2, 3 — Group 2: Paper 4, 5, 6
+        const paperMatch = name.match(/paper\s*(\d)/);
+        if (!paperMatch) return true; // keep non-standard subjects
+        const paperNum = parseInt(paperMatch[1]);
+        if (interStrategy === 'group_1') return paperNum <= 3;
+        if (interStrategy === 'group_2') return paperNum >= 4;
+        return true;
+      });
+    }
+  }
+
+  return { level, interStrategy, subjects };
 };
 
 // ==================== WEB-AUTHN PASSKEYS ====================
@@ -328,18 +399,14 @@ app.post('/api/passkeys/verify-authentication', async (req, res) => {
 
 app.get('/api/notes', authenticateToken, async (req, res) => {
   try {
-    const subjectsRes = await db.execute({
-      sql: 'SELECT id, name FROM subjects WHERE user_id = ? ORDER BY id',
-      args: [req.user.id]
-    });
-    const subjects = subjectsRes.rows;
-
+    const { subjects } = await _getFilteredSubjects(req.user.id);
+    
     const data = await Promise.all(subjects.map(async sub => {
       const chaptersRes = await db.execute({
         sql: 'SELECT id, name, notes FROM chapters WHERE subject_id = ? ORDER BY sort_order',
         args: [sub.id]
       });
-      return { ...sub, chapters: chaptersRes.rows };
+      return { id: sub.id, name: sub.name, chapters: chaptersRes.rows };
     }));
 
     res.json(data);
@@ -352,11 +419,7 @@ app.get('/api/notes', authenticateToken, async (req, res) => {
 
 app.get('/api/subjects', authenticateToken, async (req, res) => {
   try {
-    const subjectsRes = await db.execute({
-      sql: 'SELECT * FROM subjects WHERE user_id = ? ORDER BY id',
-      args: [req.user.id]
-    });
-    const subjects = subjectsRes.rows;
+    const { subjects } = await _getFilteredSubjects(req.user.id);
 
     const enriched = await Promise.all(subjects.map(async sub => {
       const chaptersRes = await db.execute({
@@ -415,12 +478,10 @@ app.get('/api/subjects', authenticateToken, async (req, res) => {
 
 app.get('/api/subjects/:id', authenticateToken, async (req, res) => {
   try {
-    const subjectRes = await db.execute({
-      sql: 'SELECT * FROM subjects WHERE id = ? AND user_id = ?',
-      args: [req.params.id, req.user.id]
-    });
-    const subject = subjectRes.rows[0];
-    if (!subject) return res.status(404).json({ error: 'Subject not found' });
+    const { subjects } = await _getFilteredSubjects(req.user.id);
+    const subject = subjects.find(s => s.id === parseInt(req.params.id));
+    
+    if (!subject) return res.status(404).json({ error: 'Subject not found in current strategy' });
 
     const chaptersRes = await db.execute({
       sql: 'SELECT * FROM chapters WHERE subject_id = ? ORDER BY sort_order',
@@ -439,6 +500,17 @@ app.post('/api/subjects', authenticateToken, async (req, res) => {
       sql: 'INSERT INTO subjects (user_id, name, total_marks) VALUES (?, ?, ?)',
       args: [req.user.id, name, total_marks || 100]
     });
+
+    const today = getLocalISODate();
+    await db.execute({
+      sql: `
+        INSERT INTO study_activity (user_id, activity_date, activity_type, count)
+        VALUES (?, ?, 'chapter_update', 1)
+        ON CONFLICT(user_id, activity_date, activity_type) DO UPDATE SET count = count + 1
+      `,
+      args: [req.user.id, today]
+    });
+
     res.json({ id: Number(result.lastInsertRowid), name, total_marks: total_marks || 100 });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -490,7 +562,7 @@ app.patch('/api/chapters/:id', authenticateToken, async (req, res) => {
       });
 
       // Log study activity for heatmap
-      const today = new Date().toISOString().split('T')[0];
+      const today = getLocalISODate();
       await db.execute({
         sql: `
           INSERT INTO study_activity (user_id, activity_date, activity_type, count)
@@ -533,6 +605,16 @@ app.post('/api/chapters', authenticateToken, async (req, res) => {
       args: [subject_id, name, marks || 0, priority || 'C', status || 'Not Started', sort_order, notes || '', frequency || 'Frequent']
     });
 
+    const today = getLocalISODate();
+    await db.execute({
+      sql: `
+        INSERT INTO study_activity (user_id, activity_date, activity_type, count)
+        VALUES (?, ?, 'chapter_update', 1)
+        ON CONFLICT(user_id, activity_date, activity_type) DO UPDATE SET count = count + 1
+      `,
+      args: [req.user.id, today]
+    });
+
     const chapterRes = await db.execute({
       sql: 'SELECT * FROM chapters WHERE id = ?',
       args: [result.lastInsertRowid]
@@ -547,11 +629,8 @@ app.post('/api/chapters', authenticateToken, async (req, res) => {
 
 app.get('/api/dashboard', authenticateToken, async (req, res) => {
   try {
-    const subjectsRes = await db.execute({
-      sql: 'SELECT * FROM subjects WHERE user_id = ?',
-      args: [req.user.id]
-    });
-    const subjects = subjectsRes.rows;
+    const { level, interStrategy, subjects } = await _getFilteredSubjects(req.user.id);
+    const subjectIds = subjects.map(s => s.id);
 
     const allChaptersRes = await db.execute({
       sql: `
@@ -561,7 +640,8 @@ app.get('/api/dashboard', authenticateToken, async (req, res) => {
       `,
       args: [req.user.id]
     });
-    const allChapters = allChaptersRes.rows;
+    // Filter chapters to only included subjects
+    const allChapters = allChaptersRes.rows.filter(ch => subjectIds.includes(ch.subject_id));
 
     const pomodoroDataRes = await db.execute({
       sql: "SELECT value FROM settings WHERE key = 'pomodoros_completed' AND user_id = ?",
@@ -587,7 +667,7 @@ app.get('/api/dashboard', authenticateToken, async (req, res) => {
 
     const confidenceScore = totalMarks > 0 ? Math.round((marksCovered / totalMarks) * 100) : 0;
     
-    // Smart Revision Order (high priority, unrevised, ordered by priority & marks)
+    // Smart Revision Order — filter by active subjects
     const smartRevisionOrderRes = await db.execute({
       sql: `
         SELECT c.*, s.name as subject_name FROM chapters c
@@ -597,27 +677,30 @@ app.get('/api/dashboard', authenticateToken, async (req, res) => {
           CASE c.priority WHEN 'A' THEN 1 WHEN 'B' THEN 2 WHEN 'C' THEN 3 END,
           CASE c.frequency WHEN 'Very Frequent' THEN 1 WHEN 'Frequent' THEN 2 ELSE 3 END,
           c.marks DESC
-        LIMIT 5
+        LIMIT 15
       `,
       args: [req.user.id]
     });
-    const smartRevisionOrder = smartRevisionOrderRes.rows;
+    const smartRevisionOrder = smartRevisionOrderRes.rows
+      .filter(ch => subjectIds.includes(ch.subject_id))
+      .slice(0, 5);
 
-    // High Risk Chapters (A priority with high marks, not started)
+    // High Risk Chapters — filter by active subjects
     const highRiskChaptersRes = await db.execute({
       sql: `
         SELECT c.*, s.name as subject_name FROM chapters c
         JOIN subjects s ON c.subject_id = s.id
         WHERE s.user_id = ? AND c.status = 'Not Started' AND c.priority = 'A' AND c.marks >= 8
         ORDER BY c.marks DESC
-        LIMIT 5
+        LIMIT 15
       `,
       args: [req.user.id]
     });
-    const highRiskChapters = highRiskChaptersRes.rows;
+    const highRiskChapters = highRiskChaptersRes.rows
+      .filter(ch => subjectIds.includes(ch.subject_id))
+      .slice(0, 5);
 
     // ====== ENHANCED SCORE PREDICTOR ======
-    // Per-subject score prediction with pass/fail analysis
     const subjectPredictions = subjects.map(sub => {
       const subChapters = allChapters.filter(c => c.subject_id === sub.id);
       let subDoneMarks = 0, subRevisingMarks = 0, subTotalChapterMarks = 0;
@@ -631,14 +714,11 @@ app.get('/api/dashboard', authenticateToken, async (req, res) => {
         if (ch.priority === 'B') { subBTotal += ch.marks; if (ch.status === 'Done') subBDone += ch.marks; }
       });
 
-      // Prediction: Done chapters = 85% retention, Revising = 50% retention
       const predictedScore = Math.round(subDoneMarks * 0.85 + subRevisingMarks * 0.50);
       const maxPossible = sub.total_marks;
-      const passingMarks = Math.ceil(maxPossible * 0.40); // CA pass = 40%
+      const passingMarks = Math.ceil(maxPossible * 0.40);
       const isPassing = predictedScore >= passingMarks;
       const pct = maxPossible > 0 ? Math.round((predictedScore / maxPossible) * 100) : 0;
-      
-      // Priority focus score (how well A categories are covered)
       const priorityFocus = subATotal > 0 ? Math.round((subADone / subATotal) * 100) : 100;
 
       return {
@@ -661,14 +741,9 @@ app.get('/api/dashboard', authenticateToken, async (req, res) => {
     const passingSubjects = subjectPredictions.filter(p => p.isPassing).length;
     const allPassing = passingSubjects === subjectPredictions.length;
 
-    const levelDataRes = await db.execute({
-      sql: "SELECT value FROM settings WHERE key = 'level' AND user_id = ?",
-      args: [req.user.id]
-    });
-    const level = levelDataRes.rows[0] ? levelDataRes.rows[0].value : 'foundation';
-
     res.json({
       level,
+      interStrategy,
       totalMarks,
       marksCovered,
       remaining: Math.max(0, totalMarks - marksCovered),
@@ -711,7 +786,7 @@ app.post('/api/pomodoro', authenticateToken, async (req, res) => {
     });
 
     // Log pomodoro activity for heatmap
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalISODate();
     await db.execute({
       sql: `
         INSERT INTO study_activity (user_id, activity_date, activity_type, count)
@@ -732,7 +807,7 @@ app.post('/api/pomodoro', authenticateToken, async (req, res) => {
 app.post('/api/focus-time', authenticateToken, async (req, res) => {
   try {
     const { focusSeconds = 0, restSeconds = 0 } = req.body;
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalISODate();
 
     if (focusSeconds > 0) {
       await db.execute({
@@ -787,7 +862,7 @@ app.get('/api/activity', authenticateToken, async (req, res) => {
           SUM(CASE WHEN activity_type = 'focus_seconds' THEN count ELSE 0 END) as focus_seconds,
           SUM(CASE WHEN activity_type = 'rest_seconds' THEN count ELSE 0 END) as rest_seconds
         FROM study_activity
-        WHERE user_id = ? AND activity_date >= date('now', '-365 days')
+        WHERE user_id = ? AND activity_date >= date('now', 'localtime', '-365 days')
         GROUP BY activity_date
         ORDER BY activity_date ASC
       `,
@@ -810,7 +885,7 @@ app.get('/api/activity', authenticateToken, async (req, res) => {
     for (let i = 0; i < 365; i++) {
       const checkDate = new Date(today);
       checkDate.setDate(checkDate.getDate() - i);
-      const dateStr = checkDate.toISOString().split('T')[0];
+      const dateStr = getLocalISODate(checkDate);
       if (dateSet.has(dateStr)) {
         currentStreak++;
       } else {
@@ -823,7 +898,7 @@ app.get('/api/activity', authenticateToken, async (req, res) => {
     for (let i = 364; i >= 0; i--) {
       const d = new Date(today);
       d.setDate(d.getDate() - i);
-      allDates.push(d.toISOString().split('T')[0]);
+      allDates.push(getLocalISODate(d));
     }
     allDates.forEach(d => {
       if (dateSet.has(d)) {
@@ -855,12 +930,9 @@ app.post('/api/revision-plan', authenticateToken, async (req, res) => {
   try {
     const { subject_id, hours_available, study_speed = 'normal', include_c = true } = req.body;
 
-    const subjectRes = await db.execute({
-      sql: 'SELECT * FROM subjects WHERE id = ? AND user_id = ?',
-      args: [subject_id, req.user.id]
-    });
-    const subject = subjectRes.rows[0];
-    if (!subject) return res.status(404).json({ error: 'Subject not found' });
+    const { level, interStrategy, subjects } = await _getFilteredSubjects(req.user.id);
+    const subject = subjects.find(s => s.id === parseInt(subject_id));
+    if (!subject) return res.status(404).json({ error: 'Subject not found in current strategy' });
 
     let speedMult = 1.0;
     if (study_speed === 'fast') speedMult = 0.8;
@@ -926,15 +998,21 @@ app.post('/api/revision-plan', authenticateToken, async (req, res) => {
 
 app.get('/api/revision-plans', authenticateToken, async (req, res) => {
   try {
+    const { subjects } = await _getFilteredSubjects(req.user.id);
+    const subjectIds = subjects.map(s => s.id);
+
+    if (subjectIds.length === 0) return res.json([]);
+
+    const placeholders = subjectIds.map(() => '?').join(',');
     const plansRes = await db.execute({
       sql: `
         SELECT rp.*, s.name as subject_name 
         FROM revision_plans rp 
         JOIN subjects s ON rp.subject_id = s.id 
-        WHERE rp.user_id = ?
+        WHERE rp.user_id = ? AND rp.subject_id IN (${placeholders})
         ORDER BY rp.created_at DESC
       `,
-      args: [req.user.id]
+      args: [req.user.id, ...subjectIds]
     });
     const plans = plansRes.rows;
 

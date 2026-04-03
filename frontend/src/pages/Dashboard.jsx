@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getDashboardInfo } from '../api';
+import { getDashboardInfo, saveSettings } from '../api';
 import { Pie, Bar } from 'react-chartjs-2';
 import { FiTarget, FiZap, FiAlertTriangle, FiCheckCircle } from 'react-icons/fi';
 import StudyHeatmap from '../components/StudyHeatmap';
@@ -9,13 +9,35 @@ export default function Dashboard() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [focusMode, setFocusMode] = useState(false);
+  const [strategy, setStrategy] = useState('both');
+  const [strategyLoading, setStrategyLoading] = useState(false);
 
-  useEffect(() => {
+  const fetchDashboard = () => {
     getDashboardInfo().then(res => {
       setData(res.data);
+      setStrategy(res.data.interStrategy || 'both');
       setLoading(false);
     });
+  };
+
+  useEffect(() => {
+    fetchDashboard();
   }, []);
+
+  const handleStrategyChange = async (newStrategy) => {
+    if (newStrategy === strategy) return;
+    setStrategyLoading(true);
+    try {
+      await saveSettings({ ca_inter_strategy: newStrategy });
+      setStrategy(newStrategy);
+      // Refresh dashboard with new filtered data
+      const res = await getDashboardInfo();
+      setData(res.data);
+    } catch (err) {
+      console.error('Failed to save strategy:', err);
+    }
+    setStrategyLoading(false);
+  };
 
   if (loading) return <div className="text-center mt-20 animate-pulse text-[var(--text-muted)]">Loading Dashboard...</div>;
 
@@ -141,6 +163,12 @@ export default function Dashboard() {
   };
   const levelTitle = levelMap[data.level] || 'CA';
 
+  const strategyOptions = [
+    { value: 'both', label: 'Both Groups', desc: 'Papers 1–6' },
+    { value: 'group_1', label: 'Group 1', desc: 'Papers 1–3' },
+    { value: 'group_2', label: 'Group 2', desc: 'Papers 4–6' },
+  ];
+
   return (
     <div className="animate-fade-in space-y-6">
       <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -157,6 +185,35 @@ export default function Dashboard() {
           <FiTarget size={18} /> ENTER FOCUS MODE
         </button>
       </header>
+
+      {/* CA Inter Exam Strategy Toggle */}
+      {data.level === 'inter' && (
+        <div className="card border border-[var(--border)] bg-gradient-to-r from-[var(--surface)]/80 to-[var(--surface-hover)]/50">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div>
+              <h3 className="text-sm font-bold uppercase tracking-wider text-[var(--text-muted)]">Exam Strategy</h3>
+              <p className="text-xs text-[var(--text-muted)] mt-1 opacity-70">Choose your attempt structure — dashboard recalculates accordingly</p>
+            </div>
+            <div className="flex items-center gap-1 bg-[var(--background)] rounded-xl p-1 border border-[var(--border)]">
+              {strategyOptions.map(opt => (
+                <button
+                  key={opt.value}
+                  onClick={() => handleStrategyChange(opt.value)}
+                  disabled={strategyLoading}
+                  className={`px-4 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 whitespace-nowrap ${
+                    strategy === opt.value
+                      ? 'bg-[var(--primary)] text-black shadow-lg shadow-[var(--primary)]/20'
+                      : 'text-[var(--text-muted)] hover:text-white hover:bg-[var(--surface-hover)]'
+                  } ${strategyLoading ? 'opacity-50 cursor-wait' : ''}`}
+                >
+                  <span>{opt.label}</span>
+                  <span className="hidden sm:inline text-[10px] ml-1 opacity-70">({opt.desc})</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">

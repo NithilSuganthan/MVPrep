@@ -11,6 +11,8 @@ import Notes from './pages/Notes';
 import Auth from './pages/Auth';
 import Admin from './pages/Admin';
 import { Toaster } from 'react-hot-toast';
+import { TimerProvider } from './context/TimerContext';
+import MiniTimer from './components/MiniTimer';
 
 function App() {
   const [token, setToken] = useState(localStorage.getItem('token'));
@@ -47,28 +49,32 @@ function App() {
   }
 
   return (
-    <Router>
-      <Toaster 
-        position="bottom-right" 
-        toastOptions={{
-          style: { background: '#1E1E1E', color: '#E8EAED', border: '1px solid #3C4043' },
-        }} 
-      />
-      <Layout onLogout={handleLogout}>
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/subjects" element={<SubjectsList />} />
-          <Route path="/subjects/:id" element={<SubjectDetail />} />
-          <Route path="/notes" element={<Notes />} />
-          <Route path="/planner" element={<Planner />} />
-          <Route path="/timer" element={<FocusTimer />} />
-          <Route path="/settings" element={<Settings />} />
-          <Route path="/admin-secret-dashboard" element={<Admin />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </Layout>
-    </Router>
+    <TimerProvider>
+      <Router>
+        <Toaster 
+          position="bottom-right" 
+          toastOptions={{
+            style: { background: '#1E1E1E', color: '#E8EAED', border: '1px solid #3C4043' },
+          }} 
+        />
+        <Layout onLogout={handleLogout}>
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/subjects" element={<SubjectsList />} />
+            <Route path="/subjects/:id" element={<SubjectDetail />} />
+            <Route path="/notes" element={<Notes />} />
+            <Route path="/planner" element={<Planner />} />
+            <Route path="/timer" element={<FocusTimer />} />
+            <Route path="/settings" element={<Settings />} />
+            <Route path="/admin-secret-dashboard" element={<Admin />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Layout>
+        <MiniTimer />
+      </Router>
+    </TimerProvider>
   );
 }
 
 export default App;
+

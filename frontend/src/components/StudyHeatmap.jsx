@@ -55,7 +55,11 @@ export default function StudyHeatmap() {
     let lastMonth = -1;
 
     while (currentDate <= today) {
-      const dateStr = currentDate.toISOString().split('T')[0];
+      const dateStr = [
+        currentDate.getFullYear(),
+        String(currentDate.getMonth() + 1).padStart(2, '0'),
+        String(currentDate.getDate()).padStart(2, '0')
+      ].join('-');
       const dayOfWeek = currentDate.getDay();
       const month = currentDate.getMonth();
 
