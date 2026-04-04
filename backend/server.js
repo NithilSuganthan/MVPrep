@@ -38,8 +38,18 @@ async function bootstrap() {
     await initDB();
     console.log('✅ Database connected & schema ready.');
 
-    app.listen(PORT, () => {
+    app.listen(PORT, async () => {
       console.log(`🚀 MVPrep Server running on port ${PORT}`);
+      
+      // Verify SMTP Transporter
+      const smtpCheck = await verifyTransporter();
+      if (smtpCheck.success) {
+        console.log('✅ SMTP Transporter: Verified & Ready');
+      } else {
+        console.warn('⚠️ SMTP Transporter Error:', smtpCheck.error);
+        console.warn('Emails may not be delivered. Check GMAIL_APP_PASSWORD env var.');
+      }
+
       console.log('📅 Starting Study Reminder crons...');
       startEmailCrons();
     });
@@ -1425,13 +1435,12 @@ app.post('/api/admin/notify', authenticateToken, async (req, res) => {
       if (uRes.rows[0]) targets.push(uRes.rows[0]);
     }
 
-    let successCount = 0;
     // Process in background
     for (const t of targets) {
        sendEmail(t.email, subject, htmlContent).catch(e => console.error('Admin Notify Background Error:', e));
     }
     
-    res.json({ success: true, message: `Notification broadcast started for ${targets.length} users.` });
+    res.json({ success: true, sentCount: targets.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

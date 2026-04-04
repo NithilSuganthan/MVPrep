@@ -107,7 +107,7 @@ export default function Admin() {
     const toastId = toast.loading("Broadcasting notifications...");
     try {
       const res = await sendAdminNotification(notifyForm);
-      toast.success(`Successfully sent ${res.data.sentCount} email(s)!`, { id: toastId, icon: '🚀' });
+      toast.success(`Successfully sent ${res.data.sentCount || 0} email(s)!`, { id: toastId, icon: '🚀' });
       setNotifyForm(prev => ({ ...prev, subject: '' }));
     } catch(err) {
       toast.error(err.response?.data?.error || "Failed to send notifications", { id: toastId });

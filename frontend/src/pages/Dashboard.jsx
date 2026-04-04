@@ -1,9 +1,13 @@
 import { useState, useEffect } from 'react';
 import { getDashboardInfo, saveSettings } from '../api';
 import { Pie, Bar } from 'react-chartjs-2';
+import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title } from 'chart.js';
 import { FiTarget, FiZap, FiAlertTriangle, FiCheckCircle } from 'react-icons/fi';
 import StudyHeatmap from '../components/StudyHeatmap';
 import ScorePredictor from '../components/ScorePredictor';
+
+// Register Chart.js components
+ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title);
 
 export default function Dashboard() {
   const [data, setData] = useState(null);

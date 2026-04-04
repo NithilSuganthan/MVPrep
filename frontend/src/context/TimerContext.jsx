@@ -34,10 +34,14 @@ export function TimerProvider({ children }) {
         String(d.getMonth() + 1).padStart(2, '0'),
         String(d.getDate()).padStart(2, '0')
       ].join('-');
-      const todayActivity = res.data.activities.find(a => a.activity_date === todayStr);
-      if (todayActivity) {
-        setTodayFocus(todayActivity.focus_seconds || 0);
-        setTodayRest(todayActivity.rest_seconds || 0);
+      
+      const activities = res?.data?.activities;
+      if (Array.isArray(activities)) {
+        const todayActivity = activities.find(a => a.activity_date === todayStr);
+        if (todayActivity) {
+          setTodayFocus(todayActivity.focus_seconds || 0);
+          setTodayRest(todayActivity.rest_seconds || 0);
+        }
       }
     }).catch(console.error);
   }, []);

@@ -48,11 +48,15 @@ export default function Auth({ onAuthSuccess }) {
         
         <div className="absolute top-0 right-0 -mt-10 -mr-10 w-32 h-32 bg-[var(--primary)] blur-[60px] opacity-20"></div>
 
-        <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-[var(--primary)] to-blue-400">
+        <div className="flex justify-center mb-6">
+          <img src="/logo.png" alt="MVPrep Logo" className="w-16 h-16 drop-shadow-[0_0_15px_rgba(59,130,246,0.5)]" />
+        </div>
+
+        <h1 className="text-3xl font-black bg-clip-text text-transparent bg-gradient-to-r from-[var(--primary)] to-blue-400 uppercase tracking-tight">
           MVPrep
         </h1>
-        <p className="text-[var(--text-muted)] text-sm mt-2 mb-8">
-          Your ultimate CA Revision Architect.
+        <p className="text-[var(--text-muted)] text-[10px] mt-1 mb-8 uppercase tracking-[0.2em] font-black opacity-60">
+          CA Revision Architect
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-4 text-left">
