@@ -40,18 +40,21 @@ export default function AIAssistant() {
   const fetchSessions = async () => {
     try {
       const { data } = await getChatSessions();
+      if (!Array.isArray(data)) throw new Error("Invalid API Response");
       setSessions(data);
       if (data.length > 0 && !activeSessionId) {
         setActiveSessionId(data[0].id);
       }
     } catch (error) {
-      toast.error('Failed to load chat sessions');
+      toast.error('Failed to load chat sessions. Please check server connection.');
+      setSessions([]);
     }
   };
 
   const fetchChats = async (sessionId) => {
     try {
       const { data } = await getChats(sessionId);
+      if (!Array.isArray(data)) throw new Error("Invalid API Response");
       const formatted = data.map(msg => ({
         ...msg,
         role: msg.role === 'model' ? 'assistant' : 'user'
@@ -59,6 +62,7 @@ export default function AIAssistant() {
       setMessages(formatted);
     } catch (error) {
       toast.error('Failed to load chat history');
+      setMessages([]);
     }
   };
 
