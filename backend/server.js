@@ -1467,6 +1467,151 @@ app.delete('/api/admin/users/:id', authenticateToken, async (req, res) => {
   }
 });
 
+// ==================== AI ASSISTANT (CHATS) ====================
+let groqClient = null;
+try {
+  const Groq = require('groq-sdk');
+  if (process.env.GROQ_API_KEY && process.env.GROQ_API_KEY !== 'your_groq_api_key_here') {
+    groqClient = new Groq({ apiKey: process.env.GROQ_API_KEY });
+  }
+} catch (e) {
+  console.log('Skipping groq-sdk init, not installed or missing key.');
+}
+
+app.get('/api/chat-sessions', authenticateToken, async (req, res) => {
+  try {
+    const sessionsRes = await db.execute({
+      sql: 'SELECT id, title, updated_at FROM chat_sessions WHERE user_id = ? ORDER BY updated_at DESC',
+      args: [req.user.id]
+    });
+    res.json(sessionsRes.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/chats/:sessionId', authenticateToken, async (req, res) => {
+  try {
+    const chatsRes = await db.execute({
+      sql: 'SELECT id, role, content, created_at FROM chats WHERE user_id = ? AND session_id = ? ORDER BY id ASC',
+      args: [req.user.id, req.params.sessionId]
+    });
+    res.json(chatsRes.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/chat-sessions/:id', authenticateToken, async (req, res) => {
+  try {
+    await db.execute({
+      sql: 'DELETE FROM chat_sessions WHERE id = ? AND user_id = ?',
+      args: [req.params.id, req.user.id]
+    });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/chats', authenticateToken, async (req, res) => {
+  try {
+    const { message, sessionId } = req.body;
+    if (!message) return res.status(400).json({ error: 'Message is required' });
+
+    let activeSessionId = sessionId;
+
+    // Create session if it doesn't exist
+    if (!activeSessionId) {
+      let tempTitle = message.substring(0, 30) + '...';
+      try {
+        if (groqClient) {
+          const titleCompletion = await groqClient.chat.completions.create({
+            messages: [
+              { role: 'system', content: 'You are a helpful assistant. Provide a brief 3-5 word title for the following conversation starter. Do not include quotes or any other text.' },
+              { role: 'user', content: message }
+            ],
+            model: 'llama-3.3-70b-versatile',
+          });
+          tempTitle = titleCompletion.choices[0]?.message?.content?.trim() || tempTitle;
+        }
+      } catch (e) { console.error('Title gen failed:', e); }
+
+      const sessionRes = await db.execute({
+        sql: 'INSERT INTO chat_sessions (user_id, title) VALUES (?, ?)',
+        args: [req.user.id, tempTitle.replace(/["']/g, '')]
+      });
+      activeSessionId = Number(sessionRes.lastInsertRowid);
+    } else {
+      // Update session timestamp
+      await db.execute({
+        sql: 'UPDATE chat_sessions SET updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        args: [activeSessionId]
+      });
+    }
+
+    // Save user message
+    const userMsgRes = await db.execute({
+      sql: 'INSERT INTO chats (user_id, session_id, role, content) VALUES (?, ?, ?, ?)',
+      args: [req.user.id, activeSessionId, 'user', message]
+    });
+    const userMsgId = Number(userMsgRes.lastInsertRowid);
+
+    // Provide a mocked response if Groq is not configured
+    if (!groqClient) {
+      const fallbackReply = "Hello! I am your AI Assistant. Please configure your GROQ_API_KEY in the .env file to enable smart CA guidance!";
+      await db.execute({
+        sql: 'INSERT INTO chats (user_id, session_id, role, content) VALUES (?, ?, ?, ?)',
+        args: [req.user.id, activeSessionId, 'model', fallbackReply]
+      });
+      return res.json({ id: userMsgId, reply: fallbackReply, sessionId: activeSessionId });
+    }
+
+    // Fetch prior msgs for context in this session
+    const histRes = await db.execute({
+      sql: 'SELECT role, content FROM chats WHERE user_id = ? AND session_id = ? ORDER BY id DESC LIMIT 20',
+      args: [req.user.id, activeSessionId]
+    });
+    const messagesContext = histRes.rows.reverse().map(msg => ({
+      role: msg.role === 'user' ? 'user' : 'assistant',
+      content: msg.content
+    }));
+
+    // Fetch user settings to personalize the system prompt
+    const settingsRes = await db.execute({
+      sql: 'SELECT key, value FROM settings WHERE user_id = ?',
+      args: [req.user.id]
+    });
+    const settings = {};
+    settingsRes.rows.forEach(r => { settings[r.key] = r.value; });
+    const userName = settings.student_name || 'the student';
+    const userLevel = settings.level ? `CA ${settings.level}` : 'CA';
+
+    // Add systemic instructions
+    messagesContext.unshift({
+      role: 'system',
+      content: `You are an expert AI assistant for a CA (Chartered Accountant) preparation tool called MVPrep. You are currently assisting ${userName}, who is studying for the ${userLevel} exams. Always tailor your advice specifically to their level. Your goal is to help CA students with all types of work regarding CA. Help them with calculations, teach concepts in simple words, provide study roadmaps, analyze their progress if provided, and act similarly to Claude or ChatGPT to guide them to success in their CA exams.`
+    });
+
+    const completion = await groqClient.chat.completions.create({
+      messages: messagesContext,
+      model: 'llama-3.3-70b-versatile',
+    });
+    
+    const reply = completion.choices[0]?.message?.content || "Sorry, I couldn't process that.";
+
+    // Save AI message
+    await db.execute({
+      sql: 'INSERT INTO chats (user_id, session_id, role, content) VALUES (?, ?, ?, ?)',
+      args: [req.user.id, activeSessionId, 'model', reply]
+    });
+
+    res.json({ id: userMsgId, reply, sessionId: activeSessionId });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ==================== FRONTEND SERVING ====================
 
 // Serve static files from the React app

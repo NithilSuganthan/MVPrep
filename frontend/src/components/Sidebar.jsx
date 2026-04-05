@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { FiHome, FiBook, FiCalendar, FiClock, FiSettings, FiEdit3 } from 'react-icons/fi';
+import { FiHome, FiBook, FiCalendar, FiClock, FiSettings, FiEdit3, FiMessageSquare } from 'react-icons/fi';
 
 export default function Sidebar() {
   return (
@@ -26,6 +26,9 @@ export default function Sidebar() {
         </NavLink>
         <NavLink to="/timer" className={({isActive}) => `nav-item ${isActive ? 'active' : ''}`}>
           <FiClock /> Focus Timer
+        </NavLink>
+        <NavLink to="/ai-assistant" className={({isActive}) => `nav-item ${isActive ? 'active' : ''}`}>
+          <FiMessageSquare /> AI Assistant
         </NavLink>
       </nav>
 

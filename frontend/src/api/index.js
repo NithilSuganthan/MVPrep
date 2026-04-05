@@ -40,6 +40,12 @@ export const testNotification = () => api.post('/notify-test');
 export const getActivity = () => api.get('/activity');
 export const saveFocusTime = (data) => api.post('/focus-time', data);
 
+// AI Assistant Endpoints
+export const getChatSessions = () => api.get('/chat-sessions');
+export const getChats = (sessionId) => api.get(`/chats/${sessionId}`);
+export const sendChatMessage = (data) => api.post('/chats', data); // { message, sessionId }
+export const deleteChatSession = (id) => api.delete(`/chat-sessions/${id}`);
+
 // Admin Endpoints
 export const getAdminStats = () => api.get('/admin/stats');
 export const getAdminUsers = () => api.get('/admin/users');

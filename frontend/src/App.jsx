@@ -10,6 +10,7 @@ import FocusTimer from './pages/FocusTimer';
 import Notes from './pages/Notes';
 import Auth from './pages/Auth';
 import Admin from './pages/Admin';
+import AIAssistant from './pages/AIAssistant';
 import { Toaster } from 'react-hot-toast';
 import { TimerProvider } from './context/TimerContext';
 import MiniTimer from './components/MiniTimer';
@@ -65,6 +66,7 @@ function App() {
             <Route path="/notes" element={<Notes />} />
             <Route path="/planner" element={<Planner />} />
             <Route path="/timer" element={<FocusTimer />} />
+            <Route path="/ai-assistant" element={<AIAssistant />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/admin-secret-dashboard" element={<Admin />} />
             <Route path="*" element={<Navigate to="/" replace />} />
