@@ -1179,15 +1179,27 @@ app.post('/api/admin/admins', authenticateToken, async (req, res) => {
     if (!(await _isAdmin(adminUser.email))) return res.status(403).json({ error: 'Unauthorised' });
     const { email } = req.body;
     if (!email || !email.includes('@')) return res.status(400).json({ error: 'Valid email required' });
+    
     await db.execute({
       sql: 'INSERT OR IGNORE INTO admins (email) VALUES (?)',
       args: [email.trim().toLowerCase()]
     });
+
+    // Send Welcome Email Notification in background
+    const htmlContent = `
+      <h2 style="color: #4CAF50;">Admin Access Granted 🛡️</h2>
+      <p>Hello!</p>
+      <p>You have been designated as an Administrator on <b>MVPrep</b>.</p>
+      <p>You can now manage students, analytics, and update the CA syllabus templates directly from the cloud dashboard.</p>
+    `;
+    sendEmail(email.trim().toLowerCase(), 'MVPrep - Admin Access Granted', htmlContent).catch(e => console.error('Admin Email Error:', e));
+
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
+
 
 // Remove admin
 app.delete('/api/admin/admins/:email', authenticateToken, async (req, res) => {
@@ -1461,6 +1473,171 @@ app.delete('/api/admin/users/:id', authenticateToken, async (req, res) => {
       sql: 'DELETE FROM users WHERE id = ?',
       args: [req.params.id]
     });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==================== ADMIN SYLLABUS TEMPLATES ====================
+
+// Fetch grouped templates
+app.get('/api/admin/templates', authenticateToken, async (req, res) => {
+  try {
+    const adminUserRes = await db.execute({
+      sql: 'SELECT email FROM users WHERE id = ?',
+      args: [req.user.id]
+    });
+    const adminUser = adminUserRes.rows[0];
+    if (!(await _isAdmin(adminUser.email))) return res.status(403).json({ error: 'Unauthorised' });
+
+    const subjectsRes = await db.execute('SELECT * FROM template_subjects ORDER BY level DESC, sort_order ASC');
+    const chaptersRes = await db.execute('SELECT * FROM template_chapters ORDER BY sort_order ASC');
+
+    const subjectsWithChapters = subjectsRes.rows.map(sub => {
+      return {
+        ...sub,
+        chapters: chaptersRes.rows.filter(ch => ch.template_subject_id === sub.id)
+      };
+    });
+
+    const grouped = {
+      foundation: subjectsWithChapters.filter(s => s.level === 'foundation'),
+      inter: subjectsWithChapters.filter(s => s.level === 'inter'),
+      final: subjectsWithChapters.filter(s => s.level === 'final'),
+    };
+
+    res.json(grouped);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Create Template Subject
+app.post('/api/admin/templates/subjects', authenticateToken, async (req, res) => {
+  try {
+    const adminUserRes = await db.execute({ sql: 'SELECT email FROM users WHERE id = ?', args: [req.user.id] });
+    if (!(await _isAdmin(adminUserRes.rows[0].email))) return res.status(403).json({ error: 'Unauthorised' });
+
+    const { level, name, total_marks } = req.body;
+    const orderRes = await db.execute({
+      sql: 'SELECT MAX(sort_order) as o FROM template_subjects WHERE level = ?',
+      args: [level]
+    });
+    const sort_order = (orderRes.rows[0]?.o || 0) + 1;
+
+    const resDb = await db.execute({
+      sql: 'INSERT INTO template_subjects (level, name, total_marks, sort_order) VALUES (?, ?, ?, ?)',
+      args: [level, name, total_marks, sort_order]
+    });
+    
+    res.json({ id: Number(resDb.lastInsertRowid), level, name, total_marks, sort_order, chapters: [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update Template Subject
+app.put('/api/admin/templates/subjects/:id', authenticateToken, async (req, res) => {
+  try {
+    const adminUserRes = await db.execute({ sql: 'SELECT email FROM users WHERE id = ?', args: [req.user.id] });
+    if (!(await _isAdmin(adminUserRes.rows[0].email))) return res.status(403).json({ error: 'Unauthorised' });
+
+    const { name, total_marks, sort_order } = req.body;
+    
+    const updates = [];
+    const values = [];
+    if (name !== undefined) { updates.push('name = ?'); values.push(name); }
+    if (total_marks !== undefined) { updates.push('total_marks = ?'); values.push(total_marks); }
+    if (sort_order !== undefined) { updates.push('sort_order = ?'); values.push(sort_order); }
+
+    if (updates.length > 0) {
+      values.push(req.params.id);
+      await db.execute({
+        sql: `UPDATE template_subjects SET ${updates.join(', ')} WHERE id = ?`,
+        args: values
+      });
+    }
+    
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete Template Subject
+app.delete('/api/admin/templates/subjects/:id', authenticateToken, async (req, res) => {
+  try {
+    const adminUserRes = await db.execute({ sql: 'SELECT email FROM users WHERE id = ?', args: [req.user.id] });
+    if (!(await _isAdmin(adminUserRes.rows[0].email))) return res.status(403).json({ error: 'Unauthorised' });
+
+    await db.execute({ sql: 'DELETE FROM template_subjects WHERE id = ?', args: [req.params.id] });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Create Template Chapter
+app.post('/api/admin/templates/chapters', authenticateToken, async (req, res) => {
+  try {
+    const adminUserRes = await db.execute({ sql: 'SELECT email FROM users WHERE id = ?', args: [req.user.id] });
+    if (!(await _isAdmin(adminUserRes.rows[0].email))) return res.status(403).json({ error: 'Unauthorised' });
+
+    const { template_subject_id, name, marks, priority } = req.body;
+    const orderRes = await db.execute({
+      sql: 'SELECT MAX(sort_order) as o FROM template_chapters WHERE template_subject_id = ?',
+      args: [template_subject_id]
+    });
+    const sort_order = (orderRes.rows[0]?.o || 0) + 1;
+
+    const resDb = await db.execute({
+      sql: 'INSERT INTO template_chapters (template_subject_id, name, marks, priority, sort_order) VALUES (?, ?, ?, ?, ?)',
+      args: [template_subject_id, name, marks || 0, priority || 'C', sort_order]
+    });
+    
+    res.json({ id: Number(resDb.lastInsertRowid), template_subject_id, name, marks, priority, sort_order });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update Template Chapter
+app.put('/api/admin/templates/chapters/:id', authenticateToken, async (req, res) => {
+  try {
+    const adminUserRes = await db.execute({ sql: 'SELECT email FROM users WHERE id = ?', args: [req.user.id] });
+    if (!(await _isAdmin(adminUserRes.rows[0].email))) return res.status(403).json({ error: 'Unauthorised' });
+
+    const { name, marks, priority, sort_order } = req.body;
+    
+    const updates = [];
+    const values = [];
+    if (name !== undefined) { updates.push('name = ?'); values.push(name); }
+    if (marks !== undefined) { updates.push('marks = ?'); values.push(marks); }
+    if (priority !== undefined) { updates.push('priority = ?'); values.push(priority); }
+    if (sort_order !== undefined) { updates.push('sort_order = ?'); values.push(sort_order); }
+
+    if (updates.length > 0) {
+      values.push(req.params.id);
+      await db.execute({
+        sql: `UPDATE template_chapters SET ${updates.join(', ')} WHERE id = ?`,
+        args: values
+      });
+    }
+    
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete Template Chapter
+app.delete('/api/admin/templates/chapters/:id', authenticateToken, async (req, res) => {
+  try {
+    const adminUserRes = await db.execute({ sql: 'SELECT email FROM users WHERE id = ?', args: [req.user.id] });
+    if (!(await _isAdmin(adminUserRes.rows[0].email))) return res.status(403).json({ error: 'Unauthorised' });
+
+    await db.execute({ sql: 'DELETE FROM template_chapters WHERE id = ?', args: [req.params.id] });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

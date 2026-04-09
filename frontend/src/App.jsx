@@ -9,9 +9,9 @@ import Settings from './pages/Settings';
 import FocusTimer from './pages/FocusTimer';
 import Notes from './pages/Notes';
 import Auth from './pages/Auth';
+import AdminLogin from './pages/AdminLogin';
 import Admin from './pages/Admin';
 import AIAssistant from './pages/AIAssistant';
-import { Toaster } from 'react-hot-toast';
 import { TimerProvider } from './context/TimerContext';
 import MiniTimer from './components/MiniTimer';
 
@@ -36,6 +36,7 @@ function App() {
   };
 
   if (!token) {
+    const isUrlAdminLogin = window.location.pathname === '/admin-login';
     return (
       <>
         <Toaster 
@@ -44,7 +45,7 @@ function App() {
             style: { background: '#1E1E1E', color: '#E8EAED', border: '1px solid #3C4043' },
           }} 
         />
-        <Auth onAuthSuccess={handleAuthSuccess} />
+        {isUrlAdminLogin ? <AdminLogin onAuthSuccess={handleAuthSuccess} /> : <Auth onAuthSuccess={handleAuthSuccess} />}
       </>
     );
   }

@@ -57,4 +57,13 @@ export const getAdminList = () => api.get('/admin/admins');
 export const addAdmin = (email) => api.post('/admin/admins', { email });
 export const removeAdmin = (email) => api.delete(`/admin/admins/${encodeURIComponent(email)}`);
 
+// Admin Template Endpoints
+export const getAdminTemplates = () => api.get('/admin/templates');
+export const createAdminTemplateSubject = (data) => api.post('/admin/templates/subjects', data);
+export const updateAdminTemplateSubject = (id, data) => api.put(`/admin/templates/subjects/${id}`, data);
+export const deleteAdminTemplateSubject = (id) => api.delete(`/admin/templates/subjects/${id}`);
+export const createAdminTemplateChapter = (data) => api.post('/admin/templates/chapters', data);
+export const updateAdminTemplateChapter = (id, data) => api.put(`/admin/templates/chapters/${id}`, data);
+export const deleteAdminTemplateChapter = (id) => api.delete(`/admin/templates/chapters/${id}`);
+
 export default api;

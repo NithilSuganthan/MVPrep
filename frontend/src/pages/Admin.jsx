@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { getAdminStats, getAdminUsers, getAdminUserDetails, changeAdminUserLevel, sendAdminNotification, deleteAdminUser, getAdminList, addAdmin, removeAdmin, login } from '../api';
+import { getAdminStats, getAdminUsers, getAdminUserDetails, changeAdminUserLevel, sendAdminNotification, deleteAdminUser, getAdminList, addAdmin, removeAdmin, login, getAdminTemplates, createAdminTemplateSubject, updateAdminTemplateSubject, deleteAdminTemplateSubject, createAdminTemplateChapter, updateAdminTemplateChapter, deleteAdminTemplateChapter } from '../api';
 import toast from 'react-hot-toast';
-import { FiUsers, FiMail, FiTrash2, FiShield, FiAlertTriangle, FiActivity, FiDatabase, FiClock, FiSearch, FiX, FiChevronDown, FiChevronUp, FiEye, FiServer, FiBook, FiBarChart2, FiUserPlus, FiLock, FiLogIn } from 'react-icons/fi';
+import { FiUsers, FiMail, FiTrash2, FiShield, FiAlertTriangle, FiActivity, FiDatabase, FiClock, FiSearch, FiX, FiChevronDown, FiChevronUp, FiEye, FiServer, FiBook, FiBarChart2, FiUserPlus, FiLock, FiLogIn, FiEdit2, FiPlus, FiSave } from 'react-icons/fi';
+import SyllabusManager from '../components/SyllabusManager';
 
 const levelLabels = { foundation: 'Foundation', inter: 'Intermediate', final: 'Final' };
 const levelColors = { foundation: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30', inter: 'bg-blue-500/20 text-blue-400 border-blue-500/30', final: 'bg-purple-500/20 text-purple-400 border-purple-500/30' };
@@ -17,6 +18,7 @@ export default function Admin() {
   const [users, setUsers] = useState([]);
   const [stats, setStats] = useState(null);
   const [adminEmails, setAdminEmails] = useState([]);
+  const [templates, setTemplates] = useState({ foundation: [], inter: [], final: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('overview');
@@ -36,10 +38,11 @@ export default function Admin() {
 
   const fetchData = async () => {
     try {
-      const [usersRes, statsRes, adminsRes] = await Promise.all([getAdminUsers(), getAdminStats(), getAdminList()]);
+      const [usersRes, statsRes, adminsRes, templatesRes] = await Promise.all([getAdminUsers(), getAdminStats(), getAdminList(), getAdminTemplates()]);
       setUsers(usersRes.data);
       setStats(statsRes.data);
       setAdminEmails(adminsRes.data);
+      if(templatesRes) setTemplates(templatesRes.data);
       setLoading(false);
       setError(null);
     } catch (err) {
@@ -258,6 +261,7 @@ export default function Admin() {
         {[
           { id: 'overview', label: 'Overview', icon: <FiBarChart2 size={14} /> },
           { id: 'users', label: 'Users', icon: <FiUsers size={14} /> },
+          { id: 'templates', label: 'Syllabus Manager', icon: <FiBook size={14} /> },
           { id: 'admins', label: 'Admins', icon: <FiLock size={14} /> },
           { id: 'notify', label: 'Notifications', icon: <FiMail size={14} /> },
           { id: 'system', label: 'System', icon: <FiServer size={14} /> },
@@ -499,6 +503,11 @@ export default function Admin() {
             )}
           </div>
         </div>
+      )}
+
+      {/* ========== TEMPLATES TAB ========== */}
+      {activeTab === 'templates' && (
+        <SyllabusManager templates={templates} fetchData={fetchData} />
       )}
 
       {/* ========== ADMINS TAB ========== */}

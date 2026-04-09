@@ -98,6 +98,24 @@ async function initDB() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
+    );`,
+    `CREATE TABLE IF NOT EXISTS template_subjects (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      level TEXT NOT NULL CHECK(level IN ('foundation', 'inter', 'final')),
+      name TEXT NOT NULL,
+      total_marks INTEGER NOT NULL DEFAULT 100,
+      sort_order INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );`,
+    `CREATE TABLE IF NOT EXISTS template_chapters (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      template_subject_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      marks INTEGER NOT NULL DEFAULT 0,
+      priority TEXT NOT NULL CHECK(priority IN ('A', 'B', 'C')) DEFAULT 'C',
+      sort_order INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (template_subject_id) REFERENCES template_subjects(id) ON DELETE CASCADE
     );`
   ];
 
@@ -110,210 +128,93 @@ async function initDB() {
 
   // Seed default admins
   const adminRes = await db.execute('SELECT COUNT(*) as count FROM admins');
-  const adminCount = adminRes.rows[0].count;
-  
-  if (adminCount === 0) {
+  if (adminRes.rows[0].count === 0) {
     const defaultAdmins = ['nithilsuganthan@gmail.com'];
     if (process.env.GMAIL_USER) defaultAdmins.push(process.env.GMAIL_USER);
-    
     for (const email of defaultAdmins) {
-      await db.execute({
-        sql: 'INSERT OR IGNORE INTO admins (email) VALUES (?)',
-        args: [email]
-      });
+      await db.execute({ sql: 'INSERT OR IGNORE INTO admins (email) VALUES (?)', args: [email] });
     }
+  }
+
+  // Migrate / Seed Template data
+  const templateCountRes = await db.execute('SELECT COUNT(*) as count FROM template_subjects');
+  if (templateCountRes.rows[0].count === 0) {
+    console.log("Seeding global template subjects and chapters...");
+    
+    const foundation = [
+      { name: 'Accounting (Paper 1)', marks: 100, chapters: [{ name: 'Accounting Standards', marks: 16, priority: 'A' }, { name: 'Company Accounts', marks: 16, priority: 'A' }, { name: 'Partnership Accounts', marks: 12, priority: 'A' }, { name: 'Hire Purchase & Instalment', marks: 8, priority: 'B' }, { name: 'Investment Accounts', marks: 8, priority: 'B' }, { name: 'Insurance Claims', marks: 8, priority: 'B' }, { name: 'Departmental & Branch', marks: 8, priority: 'C' }] },
+      { name: 'Business Law (Paper 2)', marks: 100, chapters: [{ name: 'Indian Contract Act', marks: 20, priority: 'A' }, { name: 'Sale of Goods Act', marks: 15, priority: 'A' }, { name: 'Indian Partnership Act', marks: 15, priority: 'A' }, { name: 'Companies Act', marks: 15, priority: 'B' }, { name: 'LLP Act', marks: 10, priority: 'C' }] },
+      { name: 'Quantitative Aptitude (Paper 3)', marks: 100, chapters: [{ name: 'Math: Time Value of Money', marks: 15, priority: 'A' }, { name: 'Stats: Central Tendency', marks: 15, priority: 'A' }, { name: 'Logical Reasoning', marks: 20, priority: 'A' }, { name: 'Math: Ratio & Proportion', marks: 8, priority: 'B' }, { name: 'Stats: Correlation & Regression', marks: 10, priority: 'B' }] },
+      { name: 'Business Economics (Paper 4)', marks: 100, chapters: [{ name: 'Theory of Demand and Supply', marks: 20, priority: 'A' }, { name: 'Price Determination in Markets', marks: 20, priority: 'A' }, { name: 'Business Cycles', marks: 15, priority: 'B' }, { name: 'National Income', marks: 15, priority: 'B' }] }
+    ];
+
+    const inter = [
+      { name: 'Adv. Accounting (Paper 1)', marks: 100, chapters: [{ name: 'Accounting Standards', marks: 25, priority: 'A' }, { name: 'Company Accounts & Schedule III', marks: 20, priority: 'A' }, { name: 'Consolidated Fin. Statements', marks: 15, priority: 'A' }, { name: 'Amalgamation & Reconstruction', marks: 15, priority: 'B' }, { name: 'Branch Accounting', marks: 10, priority: 'B' }] },
+      { name: 'Corporate & Other Laws (Paper 2)', marks: 100, chapters: [{ name: 'Company Law: Incorporation & Prospectus', marks: 20, priority: 'A' }, { name: 'Company Law: Share Capital', marks: 15, priority: 'A' }, { name: 'Company Law: Management & Admin', marks: 15, priority: 'A' }, { name: 'Other Laws: General Clauses Act', marks: 10, priority: 'B' }, { name: 'Other Laws: Interpretation of Statutes', marks: 10, priority: 'C' }] },
+      { name: 'Taxation (Paper 3)', marks: 100, chapters: [{ name: 'DT: PGBP', marks: 15, priority: 'A' }, { name: 'DT: Capital Gains', marks: 10, priority: 'A' }, { name: 'DT: Total Income Computation', marks: 15, priority: 'A' }, { name: 'IDT: Supply under GST', marks: 10, priority: 'B' }, { name: 'IDT: Input Tax Credit', marks: 15, priority: 'A' }] },
+      { name: 'Cost & Mgmt Accounting (Paper 4)', marks: 100, chapters: [{ name: 'Material & Labour Cost', marks: 15, priority: 'B' }, { name: 'Overheads & ABC', marks: 15, priority: 'A' }, { name: 'Standard Costing', marks: 15, priority: 'A' }, { name: 'Marginal Costing', marks: 15, priority: 'A' }, { name: 'Budgetary Control', marks: 10, priority: 'B' }] },
+      { name: 'Auditing & Ethics (Paper 5)', marks: 100, chapters: [{ name: 'Risk Assessment & Internal Control', marks: 15, priority: 'A' }, { name: 'Audit Evidence & Documentation', marks: 15, priority: 'A' }, { name: 'Company Audit', marks: 20, priority: 'A' }, { name: 'Audit Report', marks: 10, priority: 'B' }, { name: 'Professional Ethics', marks: 15, priority: 'B' }] },
+      { name: 'FM & SM (Paper 6)', marks: 100, chapters: [{ name: 'FM: Cost of Capital & Cap Structure', marks: 15, priority: 'A' }, { name: 'FM: Capital Budgeting', marks: 15, priority: 'A' }, { name: 'FM: Working Capital Mgmt', marks: 10, priority: 'B' }, { name: 'SM: Strategic Analysis', marks: 15, priority: 'B' }, { name: 'SM: Strategy Implementation', marks: 15, priority: 'C' }] }
+    ];
+
+    const final = [
+      { name: 'Financial Reporting (Paper 1)', marks: 100, chapters: [{ name: 'Ind AS: Asset Based Standards', marks: 20, priority: 'A' }, { name: 'Ind AS: Consolidation', marks: 20, priority: 'A' }, { name: 'Ind AS: Business Combinations', marks: 15, priority: 'A' }, { name: 'Ind AS: Financial Instruments', marks: 20, priority: 'A' }, { name: 'Ind AS: Revenue (115) & Leases (116)', marks: 15, priority: 'A' }] },
+      { name: 'Adv. Financial Mgmt (Paper 2)', marks: 100, chapters: [{ name: 'Forex Risk Management', marks: 20, priority: 'A' }, { name: 'Derivatives Analysis & Valuation', marks: 20, priority: 'A' }, { name: 'Portfolio Management', marks: 15, priority: 'A' }, { name: 'Mergers & Acquisitions', marks: 15, priority: 'B' }, { name: 'Mutual Funds', marks: 10, priority: 'C' }] },
+      { name: 'Adv. Auditing & Ethics (Paper 3)', marks: 100, chapters: [{ name: 'Professional Ethics', marks: 20, priority: 'A' }, { name: 'Standards on Auditing', marks: 25, priority: 'A' }, { name: 'Audit of NBFCs/Banks', marks: 15, priority: 'B' }, { name: 'Internal & Operational Audit', marks: 10, priority: 'C' }, { name: 'Due Diligence & Investigation', marks: 10, priority: 'B' }] },
+      { name: 'Direct Tax Laws (Paper 4)', marks: 100, chapters: [{ name: 'Total Income Computation', marks: 20, priority: 'A' }, { name: 'Assessment Procedures', marks: 15, priority: 'A' }, { name: 'Appeals & Revision', marks: 10, priority: 'B' }, { name: 'International Tax: Transfer Pricing', marks: 15, priority: 'A' }, { name: 'International Tax: DTAA', marks: 10, priority: 'B' }] },
+      { name: 'Indirect Tax Laws (Paper 5)', marks: 100, chapters: [{ name: 'GST: Value of Supply', marks: 15, priority: 'A' }, { name: 'GST: Input Tax Credit', marks: 15, priority: 'A' }, { name: 'GST: Exemptions & RCM', marks: 15, priority: 'B' }, { name: 'GST: Assessment & Appeals', marks: 10, priority: 'B' }, { name: 'Customs: Valuation', marks: 15, priority: 'A' }, { name: 'Foreign Trade Policy', marks: 5, priority: 'C' }] },
+      { name: 'IBS Case Study (Paper 6)', marks: 100, chapters: [{ name: 'Multi-disciplinary Case Study 1', marks: 25, priority: 'A' }, { name: 'Multi-disciplinary Case Study 2', marks: 25, priority: 'A' }, { name: 'Multi-disciplinary Case Study 3', marks: 25, priority: 'B' }, { name: 'Multi-disciplinary Case Study 4', marks: 25, priority: 'C' }] }
+    ];
+
+    const seedLevel = async (lvl, subjects) => {
+      let subOrder = 0;
+      for (const sub of subjects) {
+        const res = await db.execute({
+          sql: 'INSERT INTO template_subjects (level, name, total_marks, sort_order) VALUES (?, ?, ?, ?)',
+          args: [lvl, sub.name, sub.marks, subOrder++]
+        });
+        const tmpSubId = Number(res.lastInsertRowid);
+        
+        let chOrder = 0;
+        for (const ch of sub.chapters) {
+          await db.execute({
+            sql: 'INSERT INTO template_chapters (template_subject_id, name, marks, priority, sort_order) VALUES (?, ?, ?, ?, ?)',
+            args: [tmpSubId, ch.name, ch.marks, ch.priority, chOrder++]
+          });
+        }
+      }
+    };
+
+    await seedLevel('foundation', foundation);
+    await seedLevel('inter', inter);
+    await seedLevel('final', final);
   }
 }
 
-// Function to seed sample CA data for a specific user
+// Function to seed sample CA data for a specific user from templates
 async function seedDataForUser(userId, level = 'foundation', resetSettings = true) {
-  let subjectsData = [];
+  const subjectsRes = await db.execute({
+    sql: 'SELECT * FROM template_subjects WHERE level = ? ORDER BY sort_order ASC',
+    args: [level]
+  });
 
-  if (level === 'foundation') {
-    subjectsData = [
-      {
-        name: 'Accounting (Paper 1)', marks: 100,
-        chapters: [
-          { name: 'Accounting Standards', marks: 16, priority: 'A', status: 'Done' },
-          { name: 'Company Accounts', marks: 16, priority: 'A', status: 'Revising' },
-          { name: 'Partnership Accounts', marks: 12, priority: 'A', status: 'Not Started' },
-          { name: 'Hire Purchase & Instalment', marks: 8, priority: 'B', status: 'Not Started' },
-          { name: 'Investment Accounts', marks: 8, priority: 'B', status: 'Not Started' },
-          { name: 'Insurance Claims', marks: 8, priority: 'B', status: 'Not Started' },
-          { name: 'Departmental & Branch', marks: 8, priority: 'C', status: 'Not Started' }
-        ]
-      },
-      {
-        name: 'Business Law (Paper 2)', marks: 100,
-        chapters: [
-          { name: 'Indian Contract Act', marks: 20, priority: 'A', status: 'Not Started' },
-          { name: 'Sale of Goods Act', marks: 15, priority: 'A', status: 'Not Started' },
-          { name: 'Indian Partnership Act', marks: 15, priority: 'A', status: 'Not Started' },
-          { name: 'Companies Act', marks: 15, priority: 'B', status: 'Not Started' },
-          { name: 'LLP Act', marks: 10, priority: 'C', status: 'Not Started' }
-        ]
-      },
-      {
-        name: 'Quantitative Aptitude (Paper 3)', marks: 100,
-        chapters: [
-          { name: 'Math: Time Value of Money', marks: 15, priority: 'A', status: 'Not Started' },
-          { name: 'Stats: Central Tendency', marks: 15, priority: 'A', status: 'Not Started' },
-          { name: 'Logical Reasoning', marks: 20, priority: 'A', status: 'Not Started' },
-          { name: 'Math: Ratio & Proportion', marks: 8, priority: 'B', status: 'Not Started' },
-          { name: 'Stats: Correlation & Regression', marks: 10, priority: 'B', status: 'Not Started' }
-        ]
-      },
-      {
-        name: 'Business Economics (Paper 4)', marks: 100,
-        chapters: [
-          { name: 'Theory of Demand and Supply', marks: 20, priority: 'A', status: 'Not Started' },
-          { name: 'Price Determination in Markets', marks: 20, priority: 'A', status: 'Not Started' },
-          { name: 'Business Cycles', marks: 15, priority: 'B', status: 'Not Started' },
-          { name: 'National Income', marks: 15, priority: 'B', status: 'Not Started' }
-        ]
-      }
-    ];
-  } else if (level === 'inter') {
-    subjectsData = [
-      {
-        name: 'Adv. Accounting (Paper 1)', marks: 100,
-        chapters: [
-          { name: 'Accounting Standards', marks: 25, priority: 'A', status: 'Done' },
-          { name: 'Company Accounts & Schedule III', marks: 20, priority: 'A', status: 'Revising' },
-          { name: 'Consolidated Fin. Statements', marks: 15, priority: 'A', status: 'Not Started' },
-          { name: 'Amalgamation & Reconstruction', marks: 15, priority: 'B', status: 'Not Started' },
-          { name: 'Branch Accounting', marks: 10, priority: 'B', status: 'Not Started' }
-        ]
-      },
-      {
-        name: 'Corporate & Other Laws (Paper 2)', marks: 100,
-        chapters: [
-          { name: 'Company Law: Incorporation & Prospectus', marks: 20, priority: 'A', status: 'Not Started' },
-          { name: 'Company Law: Share Capital', marks: 15, priority: 'A', status: 'Not Started' },
-          { name: 'Company Law: Management & Admin', marks: 15, priority: 'A', status: 'Not Started' },
-          { name: 'Other Laws: General Clauses Act', marks: 10, priority: 'B', status: 'Not Started' },
-          { name: 'Other Laws: Interpretation of Statutes', marks: 10, priority: 'C', status: 'Not Started' }
-        ]
-      },
-      {
-        name: 'Taxation (Paper 3)', marks: 100,
-        chapters: [
-          { name: 'DT: PGBP', marks: 15, priority: 'A', status: 'Not Started' },
-          { name: 'DT: Capital Gains', marks: 10, priority: 'A', status: 'Not Started' },
-          { name: 'DT: Total Income Computation', marks: 15, priority: 'A', status: 'Not Started' },
-          { name: 'IDT: Supply under GST', marks: 10, priority: 'B', status: 'Not Started' },
-          { name: 'IDT: Input Tax Credit', marks: 15, priority: 'A', status: 'Not Started' }
-        ]
-      },
-      {
-        name: 'Cost & Mgmt Accounting (Paper 4)', marks: 100,
-        chapters: [
-          { name: 'Material & Labour Cost', marks: 15, priority: 'B', status: 'Not Started' },
-          { name: 'Overheads & ABC', marks: 15, priority: 'A', status: 'Not Started' },
-          { name: 'Standard Costing', marks: 15, priority: 'A', status: 'Not Started' },
-          { name: 'Marginal Costing', marks: 15, priority: 'A', status: 'Not Started' },
-          { name: 'Budgetary Control', marks: 10, priority: 'B', status: 'Not Started' }
-        ]
-      },
-      {
-        name: 'Auditing & Ethics (Paper 5)', marks: 100,
-        chapters: [
-          { name: 'Risk Assessment & Internal Control', marks: 15, priority: 'A', status: 'Not Started' },
-          { name: 'Audit Evidence & Documentation', marks: 15, priority: 'A', status: 'Not Started' },
-          { name: 'Company Audit', marks: 20, priority: 'A', status: 'Not Started' },
-          { name: 'Audit Report', marks: 10, priority: 'B', status: 'Not Started' },
-          { name: 'Professional Ethics', marks: 15, priority: 'B', status: 'Not Started' }
-        ]
-      },
-      {
-        name: 'FM & SM (Paper 6)', marks: 100,
-        chapters: [
-          { name: 'FM: Cost of Capital & Cap Structure', marks: 15, priority: 'A', status: 'Not Started' },
-          { name: 'FM: Capital Budgeting', marks: 15, priority: 'A', status: 'Not Started' },
-          { name: 'FM: Working Capital Mgmt', marks: 10, priority: 'B', status: 'Not Started' },
-          { name: 'SM: Strategic Analysis', marks: 15, priority: 'B', status: 'Not Started' },
-          { name: 'SM: Strategy Implementation', marks: 15, priority: 'C', status: 'Not Started' }
-        ]
-      }
-    ];
-  } else if (level === 'final') {
-    subjectsData = [
-      {
-        name: 'Financial Reporting (Paper 1)', marks: 100,
-        chapters: [
-          { name: 'Ind AS: Asset Based Standards', marks: 20, priority: 'A', status: 'Revising' },
-          { name: 'Ind AS: Consolidation', marks: 20, priority: 'A', status: 'Not Started' },
-          { name: 'Ind AS: Business Combinations', marks: 15, priority: 'A', status: 'Not Started' },
-          { name: 'Ind AS: Financial Instruments', marks: 20, priority: 'A', status: 'Not Started' },
-          { name: 'Ind AS: Revenue (115) & Leases (116)', marks: 15, priority: 'A', status: 'Not Started' }
-        ]
-      },
-      {
-        name: 'Adv. Financial Mgmt (Paper 2)', marks: 100,
-        chapters: [
-          { name: 'Forex Risk Management', marks: 20, priority: 'A', status: 'Not Started' },
-          { name: 'Derivatives Analysis & Valuation', marks: 20, priority: 'A', status: 'Not Started' },
-          { name: 'Portfolio Management', marks: 15, priority: 'A', status: 'Not Started' },
-          { name: 'Mergers & Acquisitions', marks: 15, priority: 'B', status: 'Not Started' },
-          { name: 'Mutual Funds', marks: 10, priority: 'C', status: 'Not Started' }
-        ]
-      },
-      {
-        name: 'Adv. Auditing & Ethics (Paper 3)', marks: 100,
-        chapters: [
-          { name: 'Professional Ethics', marks: 20, priority: 'A', status: 'Not Started' },
-          { name: 'Standards on Auditing', marks: 25, priority: 'A', status: 'Not Started' },
-          { name: 'Audit of NBFCs/Banks', marks: 15, priority: 'B', status: 'Not Started' },
-          { name: 'Internal & Operational Audit', marks: 10, priority: 'C', status: 'Not Started' },
-          { name: 'Due Diligence & Investigation', marks: 10, priority: 'B', status: 'Not Started' }
-        ]
-      },
-      {
-        name: 'Direct Tax Laws (Paper 4)', marks: 100,
-        chapters: [
-          { name: 'Total Income Computation', marks: 20, priority: 'A', status: 'Not Started' },
-          { name: 'Assessment Procedures', marks: 15, priority: 'A', status: 'Not Started' },
-          { name: 'Appeals & Revision', marks: 10, priority: 'B', status: 'Not Started' },
-          { name: 'International Tax: Transfer Pricing', marks: 15, priority: 'A', status: 'Not Started' },
-          { name: 'International Tax: DTAA', marks: 10, priority: 'B', status: 'Not Started' }
-        ]
-      },
-      {
-        name: 'Indirect Tax Laws (Paper 5)', marks: 100,
-        chapters: [
-          { name: 'GST: Value of Supply', marks: 15, priority: 'A', status: 'Not Started' },
-          { name: 'GST: Input Tax Credit', marks: 15, priority: 'A', status: 'Not Started' },
-          { name: 'GST: Exemptions & RCM', marks: 15, priority: 'B', status: 'Not Started' },
-          { name: 'GST: Assessment & Appeals', marks: 10, priority: 'B', status: 'Not Started' },
-          { name: 'Customs: Valuation', marks: 15, priority: 'A', status: 'Not Started' },
-          { name: 'Foreign Trade Policy', marks: 5, priority: 'C', status: 'Not Started' }
-        ]
-      },
-      {
-        name: 'IBS Case Study (Paper 6)', marks: 100,
-        chapters: [
-          { name: 'Multi-disciplinary Case Study 1', marks: 25, priority: 'A', status: 'Not Started' },
-          { name: 'Multi-disciplinary Case Study 2', marks: 25, priority: 'A', status: 'Not Started' },
-          { name: 'Multi-disciplinary Case Study 3', marks: 25, priority: 'B', status: 'Not Started' },
-          { name: 'Multi-disciplinary Case Study 4', marks: 25, priority: 'C', status: 'Not Started' }
-        ]
-      }
-    ];
-  }
-
-  // Insert all subjects and their chapters (sequential inserts, no transaction needed)
-  for (const sub of subjectsData) {
+  for (const sub of subjectsRes.rows) {
     const subRes = await db.execute({
       sql: 'INSERT INTO subjects (user_id, name, total_marks) VALUES (?, ?, ?)',
-      args: [userId, sub.name, sub.marks]
+      args: [userId, sub.name, sub.total_marks]
     });
-    const subjectId = Number(subRes.lastInsertRowid);
+    const newSubjectId = Number(subRes.lastInsertRowid);
     
-    for (let i = 0; i < sub.chapters.length; i++) {
-      const ch = sub.chapters[i];
+    const chaptersRes = await db.execute({
+      sql: 'SELECT * FROM template_chapters WHERE template_subject_id = ? ORDER BY sort_order ASC',
+      args: [sub.id]
+    });
+
+    for (let i = 0; i < chaptersRes.rows.length; i++) {
+      const ch = chaptersRes.rows[i];
       await db.execute({
         sql: 'INSERT INTO chapters (subject_id, name, marks, priority, status, sort_order) VALUES (?, ?, ?, ?, ?, ?)',
-        args: [subjectId, ch.name, ch.marks, ch.priority, ch.status, i]
+        args: [newSubjectId, ch.name, ch.marks, ch.priority, 'Not Started', i]
       });
     }
   }
