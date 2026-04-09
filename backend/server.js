@@ -539,6 +539,40 @@ app.delete('/api/subjects/:id', authenticateToken, async (req, res) => {
   }
 });
 
+app.patch('/api/subjects/:id', authenticateToken, async (req, res) => {
+  try {
+    const { name, total_marks } = req.body;
+
+    // Ensure subject belongs to user
+    const subjectRes = await db.execute({
+      sql: 'SELECT id FROM subjects WHERE id = ? AND user_id = ?',
+      args: [req.params.id, req.user.id]
+    });
+    if (!subjectRes.rows[0]) return res.status(404).json({ error: 'Subject not found' });
+
+    const updates = [];
+    const values = [];
+    if (name !== undefined) { updates.push('name = ?'); values.push(name); }
+    if (total_marks !== undefined) { updates.push('total_marks = ?'); values.push(total_marks); }
+
+    if (updates.length > 0) {
+      values.push(req.params.id);
+      await db.execute({
+        sql: `UPDATE subjects SET ${updates.join(', ')} WHERE id = ?`,
+        args: values
+      });
+    }
+
+    const updatedRes = await db.execute({
+      sql: 'SELECT * FROM subjects WHERE id = ?',
+      args: [req.params.id]
+    });
+    res.json(updatedRes.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ==================== CHAPTERS ====================
 
 app.patch('/api/chapters/:id', authenticateToken, async (req, res) => {
