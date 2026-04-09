@@ -159,14 +159,14 @@ export default function SubjectDetail() {
               </button>
             </div>
           ) : (
-            <div className="group flex items-center gap-3 min-w-0">
+            <div className="flex items-center gap-3 min-w-0">
               <div>
                 <h1 className="text-3xl font-bold tracking-tight">{data.name}</h1>
                 <p className="text-[var(--text-muted)] mt-1">Marks Covered: <span className="text-[var(--primary)] font-bold">{marksCovered}</span> / {data.total_marks}</p>
               </div>
               <button
                 onClick={startEditingSubject}
-                className="p-2 text-[var(--text-muted)] hover:text-[var(--primary)] hover:bg-[var(--surface-hover)] rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                className="p-2 text-[var(--text-muted)] hover:text-[var(--primary)] hover:bg-[var(--surface-hover)] rounded-lg transition-all border border-transparent hover:border-[var(--border)]"
                 title="Edit Subject"
               >
                 <FiEdit2 size={16} />
@@ -328,11 +328,11 @@ export default function SubjectDetail() {
                       </div>
                     ) : (
                       <>
-                        <div className="flex items-center gap-2 group/name">
+                        <div className="flex items-center gap-2">
                           <span className="font-bold text-lg text-white tracking-wide">{ch.name}</span>
                           <button
                             onClick={() => startEditingChapter(ch)}
-                            className="p-1 text-[var(--text-muted)] hover:text-[var(--primary)] rounded transition-all opacity-0 group-hover/name:opacity-100"
+                            className="p-1.5 text-[var(--text-muted)] hover:text-[var(--primary)] hover:bg-[var(--surface-hover)] rounded-md transition-all border border-transparent hover:border-[var(--border)]"
                             title="Edit chapter details"
                           >
                             <FiEdit2 size={13} />
