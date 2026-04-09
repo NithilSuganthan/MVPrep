@@ -30,6 +30,7 @@ export const getSubjects = () => api.get('/subjects');
 export const getSubject = (id) => api.get(`/subjects/${id}`);
 export const createSubject = (data) => api.post('/subjects', data);
 export const updateChapter = (id, data) => api.patch(`/chapters/${id}`, data);
+export const updateSubject = (id, data) => api.patch(`/subjects/${id}`, data);
 export const createChapter = (data) => api.post('/chapters', data);
 export const createRevisionPlan = (data) => api.post('/revision-plan', data);
 export const getRevisionPlans = () => api.get('/revision-plans');
