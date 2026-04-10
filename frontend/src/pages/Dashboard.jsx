@@ -180,20 +180,28 @@ export default function Dashboard() {
     { value: 'group_2', label: 'Group 2', desc: 'Papers 4–6' },
   ];
 
-  // Exam Countdown calculation
-  const getCountdown = () => {
-    if (!examDate) return null;
-    const now = new Date();
-    const exam = new Date(examDate + 'T00:00:00');
-    if (isNaN(exam.getTime())) return null;
-    const diff = exam - now;
-    if (diff <= 0) return { expired: true };
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-    return { days, hours, minutes, expired: false };
-  };
-  const countdown = getCountdown();
+  // Exam Countdown - live ticking
+  const [countdown, setCountdown] = useState(null);
+  useEffect(() => {
+    if (!examDate) { setCountdown(null); return; }
+    const tick = () => {
+      const now = new Date();
+      const exam = new Date(examDate + 'T00:00:00');
+      if (isNaN(exam.getTime())) { setCountdown(null); return; }
+      const diff = exam - now;
+      if (diff <= 0) { setCountdown({ expired: true }); return; }
+      setCountdown({
+        days: Math.floor(diff / (1000 * 60 * 60 * 24)),
+        hours: Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)),
+        minutes: Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60)),
+        seconds: Math.floor((diff % (1000 * 60)) / 1000),
+        expired: false
+      });
+    };
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [examDate]);
 
   return (
     <div className="animate-fade-in space-y-6">
@@ -261,6 +269,10 @@ export default function Dashboard() {
                 <div className="text-center px-4 py-2 bg-black/30 rounded-xl border border-[var(--border)] min-w-[70px]">
                   <div className="text-2xl font-black font-mono text-white">{countdown.minutes}</div>
                   <div className="text-[10px] text-[var(--text-muted)] uppercase font-bold tracking-wider">Mins</div>
+                </div>
+                <div className="text-center px-4 py-2 bg-black/30 rounded-xl border border-[var(--border)] min-w-[70px]">
+                  <div className="text-2xl font-black font-mono text-[var(--primary)] tabular-nums">{String(countdown.seconds).padStart(2, '0')}</div>
+                  <div className="text-[10px] text-[var(--text-muted)] uppercase font-bold tracking-wider">Secs</div>
                 </div>
               </div>
             </div>
