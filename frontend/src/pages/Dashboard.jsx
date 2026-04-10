@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getDashboardInfo, saveSettings } from '../api';
+import { getDashboardInfo, saveSettings, getSettings } from '../api';
 import { Pie, Bar } from 'react-chartjs-2';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title } from 'chart.js';
 import { FiTarget, FiZap, FiAlertTriangle, FiCheckCircle, FiCalendar } from 'react-icons/fi';
@@ -16,13 +16,19 @@ export default function Dashboard() {
   const [focusMode, setFocusMode] = useState(false);
   const [strategy, setStrategy] = useState('both');
   const [strategyLoading, setStrategyLoading] = useState(false);
+  const [examDate, setExamDate] = useState('');
 
   const fetchDashboard = () => {
     getDashboardInfo().then(res => {
       setData(res.data);
       setStrategy(res.data.interStrategy || 'both');
+      if (res.data.examDate) setExamDate(res.data.examDate);
       setLoading(false);
     });
+    // Also fetch settings directly to get exam_date reliably
+    getSettings().then(res => {
+      if (res.data.exam_date) setExamDate(res.data.exam_date);
+    }).catch(() => {});
   };
 
   useEffect(() => {
@@ -176,9 +182,10 @@ export default function Dashboard() {
 
   // Exam Countdown calculation
   const getCountdown = () => {
-    if (!data.examDate) return null;
+    if (!examDate) return null;
     const now = new Date();
-    const exam = new Date(data.examDate + 'T00:00:00');
+    const exam = new Date(examDate + 'T00:00:00');
+    if (isNaN(exam.getTime())) return null;
     const diff = exam - now;
     if (diff <= 0) return { expired: true };
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
@@ -238,7 +245,7 @@ export default function Dashboard() {
                 <div>
                   <p className="text-xs text-[var(--text-muted)] uppercase tracking-wider font-bold">Exam Countdown</p>
                   <p className="text-sm text-[var(--text-muted)] mt-0.5">
-                    {new Date(data.examDate + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                    {new Date(examDate + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
                   </p>
                 </div>
               </div>
