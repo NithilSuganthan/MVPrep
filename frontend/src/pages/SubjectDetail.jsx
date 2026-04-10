@@ -237,183 +237,165 @@ export default function SubjectDetail() {
         </form>
       )}
 
-      <div className="card overflow-x-auto p-0">
-        <table className="w-full text-left border-collapse min-w-[800px]">
-          <thead>
-            <tr className="border-b-2 border-[var(--border)] bg-[#101010] text-[var(--text-muted)] uppercase text-xs tracking-wider">
-              <th className="p-4 font-semibold w-7/12 rounded-tl-xl">Chapter & Notes</th>
-              <th className="p-4 font-semibold text-center w-32 relative group cursor-help" title="Based on Previous Year Question mapping">
-                Weight / Freq <span className="text-[10px] bg-white/10 px-1 rounded ml-1">i</span>
-              </th>
-              <th className="p-4 font-semibold text-center w-28">Priority Heatmap</th>
-              <th className="p-4 font-semibold text-right w-36 rounded-tr-xl">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.chapters.map(ch => (
-              <tr 
-                key={ch.id} 
-                className={`border-b border-[var(--border)] hover:bg-[var(--surface-hover)] transition-colors 
-                  ${ch.status === 'Done' ? 'opacity-[0.65]' : ''}`
-                }
-              >
-                <td className="p-4 align-top">
-                  <div className="flex flex-col gap-2">
-                    {/* Chapter name with inline edit */}
-                    {editingChapterId === ch.id ? (
-                      <div className="animate-fade-in space-y-3 bg-black/40 p-4 rounded-xl border border-[var(--primary)]/50 shadow-lg">
-                        <span className="text-[10px] text-[var(--primary)] font-bold uppercase tracking-widest">Edit Chapter</span>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          <div className="sm:col-span-2">
-                            <label className="block text-[10px] text-[var(--text-muted)] uppercase font-bold mb-1">Name</label>
-                            <input
-                              type="text"
-                              value={chapterForm.name}
-                              onChange={e => setChapterForm({ ...chapterForm, name: e.target.value })}
-                              className="w-full bg-[var(--background)] border border-[var(--border)] rounded-lg p-2.5 text-white text-sm font-bold focus:border-[var(--primary)] focus:outline-none"
-                              autoFocus
-                              onKeyDown={e => { if (e.key === 'Enter') handleSaveChapter(ch.id); if (e.key === 'Escape') setEditingChapterId(null); }}
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[10px] text-[var(--text-muted)] uppercase font-bold mb-1">Marks</label>
-                            <input
-                              type="number"
-                              min="0"
-                              max="100"
-                              value={chapterForm.marks}
-                              onChange={e => setChapterForm({ ...chapterForm, marks: e.target.value })}
-                              className="w-full bg-[var(--background)] border border-[var(--border)] rounded-lg p-2.5 text-white text-sm font-mono focus:border-[var(--primary)] focus:outline-none"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[10px] text-[var(--text-muted)] uppercase font-bold mb-1">Priority</label>
-                            <select
-                              value={chapterForm.priority}
-                              onChange={e => setChapterForm({ ...chapterForm, priority: e.target.value })}
-                              className="w-full bg-[var(--background)] border border-[var(--border)] rounded-lg p-2.5 text-white text-sm focus:border-[var(--primary)] focus:outline-none"
-                            >
-                              <option value="A">A — High Priority</option>
-                              <option value="B">B — Medium Priority</option>
-                              <option value="C">C — Low Priority</option>
-                            </select>
-                          </div>
-                          <div className="sm:col-span-2">
-                            <label className="block text-[10px] text-[var(--text-muted)] uppercase font-bold mb-1">Exam Frequency</label>
-                            <select
-                              value={chapterForm.frequency}
-                              onChange={e => setChapterForm({ ...chapterForm, frequency: e.target.value })}
-                              className="w-full bg-[var(--background)] border border-[var(--border)] rounded-lg p-2.5 text-white text-sm focus:border-[var(--primary)] focus:outline-none"
-                            >
-                              <option value="Very Frequent">Very Frequent</option>
-                              <option value="Frequent">Frequent</option>
-                              <option value="Rare">Rare</option>
-                            </select>
-                          </div>
-                        </div>
-                        <div className="flex justify-end gap-2 pt-1">
-                          <button
-                            onClick={() => setEditingChapterId(null)}
-                            className="px-4 py-1.5 text-sm text-[var(--text-muted)] hover:text-white transition-colors rounded-lg"
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            onClick={() => handleSaveChapter(ch.id)}
-                            className="flex items-center gap-1.5 px-5 py-1.5 bg-[var(--primary)] text-black text-sm font-bold rounded-lg hover:bg-blue-400 transition-colors shadow"
-                          >
-                            <FiSave size={14} /> Save
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-lg text-white tracking-wide">{ch.name}</span>
-                          <button
-                            onClick={() => startEditingChapter(ch)}
-                            className="p-1.5 text-[var(--text-muted)] hover:text-[var(--primary)] hover:bg-[var(--surface-hover)] rounded-md transition-all border border-transparent hover:border-[var(--border)]"
-                            title="Edit chapter details"
-                          >
-                            <FiEdit2 size={13} />
-                          </button>
-                        </div>
-                    
-                        {/* Notes Section */}
-                        {editingNotes === ch.id ? (
-                          <div className="mt-2 flex flex-col gap-2 bg-black/60 p-3 rounded-lg border border-[var(--primary)] shadow-lg animate-fade-in relative">
-                            <span className="absolute -top-3 left-4 bg-[var(--background)] px-2 text-[10px] text-[var(--primary)] font-bold uppercase tracking-widest border border-[var(--primary)] rounded">Quick Notes</span>
-                            <textarea 
-                              className="w-full bg-transparent text-sm text-gray-300 p-2 rounded focus:outline-none resize-none min-h-[80px]"
-                              placeholder="Store ultra-short notes (Formulas, Limits, AS numbers)..."
-                              value={tempNotes}
-                              autoFocus
-                              onChange={(e) => setTempNotes(e.target.value)}
-                            />
-                            <div className="flex justify-end gap-3 mt-1">
-                              <button onClick={() => setEditingNotes(null)} className="text-xs text-[var(--text-muted)] hover:text-white transition-colors font-medium">Cancel</button>
-                              <button onClick={async () => {
-                                try {
-                                  await updateChapter(ch.id, { notes: tempNotes });
-                                  setEditingNotes(null);
-                                  fetchSubject();
-                                } catch (e) {
-                                  console.error(e);
-                                }
-                              }} className="bg-[var(--primary)] text-black text-xs font-bold px-4 py-1.5 rounded hover:bg-white transition-colors shadow">Save Notes</button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div 
-                            className="mt-1 group cursor-text bg-[#1A1A1A] hover:bg-[#222] p-3 rounded-lg border border-dashed border-[#333] hover:border-[var(--primary)]/50 transition-all select-none"
-                            onClick={() => { setEditingNotes(ch.id); setTempNotes(ch.notes || ''); setEditingChapterId(null); }}
-                          >
-                            {ch.notes ? (
-                              <div className="text-sm text-[var(--text-muted)] font-mono leading-relaxed whitespace-pre-wrap pl-2 border-l-2 border-[var(--primary)]/50 group-hover:border-[var(--primary)]">{ch.notes}</div>
-                            ) : (
-                              <span className="text-xs text-gray-500 italic flex items-center gap-2 group-hover:text-[#8AB4F8] transition-colors">
-                                <span className="bg-black border border-gray-600 rounded px-1 group-hover:border-[#8AB4F8]">+</span> Add ultra-short revision notes (Useful for last 2-hour rush)
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </>
-                    )}
+      <div className="space-y-3">
+        {data.chapters.map(ch => (
+          <div 
+            key={ch.id} 
+            className={`card p-0 overflow-hidden transition-all ${ch.status === 'Done' ? 'opacity-[0.65]' : ''}`}
+          >
+            {/* Chapter Content */}
+            <div className="p-4 space-y-3">
+              {/* Chapter name with inline edit */}
+              {editingChapterId === ch.id ? (
+                <div className="animate-fade-in space-y-3 bg-black/40 p-4 rounded-xl border border-[var(--primary)]/50 shadow-lg">
+                  <span className="text-[10px] text-[var(--primary)] font-bold uppercase tracking-widest">Edit Chapter</span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="sm:col-span-2">
+                      <label className="block text-[10px] text-[var(--text-muted)] uppercase font-bold mb-1">Name</label>
+                      <input
+                        type="text"
+                        value={chapterForm.name}
+                        onChange={e => setChapterForm({ ...chapterForm, name: e.target.value })}
+                        className="w-full bg-[var(--background)] border border-[var(--border)] rounded-lg p-2.5 text-white text-sm font-bold focus:border-[var(--primary)] focus:outline-none"
+                        autoFocus
+                        onKeyDown={e => { if (e.key === 'Enter') handleSaveChapter(ch.id); if (e.key === 'Escape') setEditingChapterId(null); }}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-[var(--text-muted)] uppercase font-bold mb-1">Marks</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={chapterForm.marks}
+                        onChange={e => setChapterForm({ ...chapterForm, marks: e.target.value })}
+                        className="w-full bg-[var(--background)] border border-[var(--border)] rounded-lg p-2.5 text-white text-sm font-mono focus:border-[var(--primary)] focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-[var(--text-muted)] uppercase font-bold mb-1">Priority</label>
+                      <select
+                        value={chapterForm.priority}
+                        onChange={e => setChapterForm({ ...chapterForm, priority: e.target.value })}
+                        className="w-full bg-[var(--background)] border border-[var(--border)] rounded-lg p-2.5 text-white text-sm focus:border-[var(--primary)] focus:outline-none"
+                      >
+                        <option value="A">A — High Priority</option>
+                        <option value="B">B — Medium Priority</option>
+                        <option value="C">C — Low Priority</option>
+                      </select>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-[10px] text-[var(--text-muted)] uppercase font-bold mb-1">Exam Frequency</label>
+                      <select
+                        value={chapterForm.frequency}
+                        onChange={e => setChapterForm({ ...chapterForm, frequency: e.target.value })}
+                        className="w-full bg-[var(--background)] border border-[var(--border)] rounded-lg p-2.5 text-white text-sm focus:border-[var(--primary)] focus:outline-none"
+                      >
+                        <option value="Very Frequent">Very Frequent</option>
+                        <option value="Frequent">Frequent</option>
+                        <option value="Rare">Rare</option>
+                      </select>
+                    </div>
                   </div>
-                </td>
-                <td className="p-4 text-center align-top">
-                  <div className="font-mono font-black text-xl text-white">{ch.marks} <span className="text-xs text-[var(--text-muted)] font-sans font-normal">marks</span></div>
-                  <div className={`mt-3 text-[10px] font-bold px-2 py-1 rounded-full inline-block uppercase tracking-wider
-                    ${ch.frequency === 'Very Frequent' ? 'bg-[#3b0764] text-[#d8b4fe] border border-[#d8b4fe]/30 shadow-[0_0_10px_rgba(216,180,254,0.1)]' : 
-                      ch.frequency === 'Rare' ? 'bg-[#1f2937] text-[#9ca3af] border border-[#374151]' : 'bg-[#1e3a8a] text-[#93c5fd] border border-[#93c5fd]/30'}`}>
-                    {ch.frequency || 'Frequent'}
+                  <div className="flex justify-end gap-2 pt-1">
+                    <button
+                      onClick={() => setEditingChapterId(null)}
+                      className="px-4 py-1.5 text-sm text-[var(--text-muted)] hover:text-white transition-colors rounded-lg"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => handleSaveChapter(ch.id)}
+                      className="flex items-center gap-1.5 px-5 py-1.5 bg-[var(--primary)] text-black text-sm font-bold rounded-lg hover:bg-blue-400 transition-colors shadow"
+                    >
+                      <FiSave size={14} /> Save
+                    </button>
                   </div>
-                </td>
-                <td className="p-4 text-center align-top pt-6">
-                  <div className="flex justify-center">
-                    <span className={`px-4 py-1.5 rounded shadow-sm text-sm font-bold text-black border border-black/20 
-                      ${ch.priority === 'A' ? 'bg-[#81C995] shadow-[0_0_15px_rgba(129,201,149,0.25)]' : 
-                        ch.priority === 'B' ? 'bg-[#FDD663] shadow-[0_0_15px_rgba(253,214,99,0.25)]' : 
-                        'bg-[#F28B82] shadow-[0_0_15px_rgba(242,139,130,0.25)]'}`}>
-                      {ch.priority}
+                </div>
+              ) : (
+                <>
+                  {/* Top row: Name + Edit + Status */}
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="font-bold text-base sm:text-lg text-white tracking-wide truncate">{ch.name}</span>
+                      <button
+                        onClick={() => startEditingChapter(ch)}
+                        className="p-1.5 text-[var(--text-muted)] hover:text-[var(--primary)] hover:bg-[var(--surface-hover)] rounded-md transition-all border border-transparent hover:border-[var(--border)] shrink-0"
+                        title="Edit chapter details"
+                      >
+                        <FiEdit2 size={13} />
+                      </button>
+                    </div>
+                    <button 
+                      onClick={() => handleStatusChange(ch.id, ch.status)}
+                      className={`inline-flex items-center justify-center gap-2 px-4 py-1.5 rounded-full text-xs sm:text-sm font-bold transition-all border shadow-sm shrink-0 self-start sm:self-auto
+                        ${ch.status === 'Done' ? 'bg-[#1e3a2b] text-[var(--success)] border-[var(--success)]' : 
+                          ch.status === 'Revising' ? 'bg-[#453a1a] text-[var(--warning)] border-[var(--warning)]' : 'bg-black/40 text-[var(--text-muted)] border-[var(--border)] hover:border-white hover:text-white'}`}
+                    >
+                      {ch.status === 'Done' ? <FiCheckCircle size={14} /> : ch.status === 'Revising' ? <FiPlayCircle size={14} /> : <FiCircle size={14} />}
+                      {ch.status}
+                    </button>
+                  </div>
+
+                  {/* Meta row: Marks, Priority, Frequency */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono font-black text-sm text-white bg-black/30 px-2.5 py-1 rounded-lg border border-[var(--border)]">
+                      {ch.marks} <span className="text-[10px] text-[var(--text-muted)] font-sans font-normal">marks</span>
+                    </span>
+                    <span className={`px-3 py-1 rounded-lg text-xs font-bold text-black border border-black/20 
+                      ${ch.priority === 'A' ? 'bg-[#81C995]' : ch.priority === 'B' ? 'bg-[#FDD663]' : 'bg-[#F28B82]'}`}>
+                      {ch.priority === 'A' ? 'High' : ch.priority === 'B' ? 'Medium' : 'Low'}
+                    </span>
+                    <span className={`text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wider
+                      ${ch.frequency === 'Very Frequent' ? 'bg-[#3b0764] text-[#d8b4fe] border border-[#d8b4fe]/30' : 
+                        ch.frequency === 'Rare' ? 'bg-[#1f2937] text-[#9ca3af] border border-[#374151]' : 'bg-[#1e3a8a] text-[#93c5fd] border border-[#93c5fd]/30'}`}>
+                      {ch.frequency || 'Frequent'}
                     </span>
                   </div>
-                </td>
-                <td className="p-4 text-right align-top pt-5">
-                  <button 
-                    onClick={() => handleStatusChange(ch.id, ch.status)}
-                    className={`inline-flex items-center justify-center min-w-[120px] gap-2 px-4 py-2 rounded-full text-sm font-bold transition-all border shadow-sm
-                      ${ch.status === 'Done' ? 'bg-[#1e3a2b] text-[var(--success)] border-[var(--success)]' : 
-                        ch.status === 'Revising' ? 'bg-[#453a1a] text-[var(--warning)] border-[var(--warning)]' : 'bg-black/40 text-[var(--text-muted)] border-[var(--border)] hover:border-white hover:text-white'}`}
-                  >
-                    {ch.status === 'Done' ? <FiCheckCircle size={16} /> : ch.status === 'Revising' ? <FiPlayCircle size={16} /> : <FiCircle size={16} />}
-                    {ch.status}
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+              
+                  {/* Notes Section */}
+                  {editingNotes === ch.id ? (
+                    <div className="flex flex-col gap-2 bg-black/60 p-3 rounded-lg border border-[var(--primary)] shadow-lg animate-fade-in relative">
+                      <span className="absolute -top-3 left-4 bg-[var(--background)] px-2 text-[10px] text-[var(--primary)] font-bold uppercase tracking-widest border border-[var(--primary)] rounded">Quick Notes</span>
+                      <textarea 
+                        className="w-full bg-transparent text-sm text-gray-300 p-2 rounded focus:outline-none resize-none min-h-[80px]"
+                        placeholder="Store ultra-short notes (Formulas, Limits, AS numbers)..."
+                        value={tempNotes}
+                        autoFocus
+                        onChange={(e) => setTempNotes(e.target.value)}
+                      />
+                      <div className="flex justify-end gap-3 mt-1">
+                        <button onClick={() => setEditingNotes(null)} className="text-xs text-[var(--text-muted)] hover:text-white transition-colors font-medium">Cancel</button>
+                        <button onClick={async () => {
+                          try {
+                            await updateChapter(ch.id, { notes: tempNotes });
+                            setEditingNotes(null);
+                            fetchSubject();
+                          } catch (e) {
+                            console.error(e);
+                          }
+                        }} className="bg-[var(--primary)] text-black text-xs font-bold px-4 py-1.5 rounded hover:bg-white transition-colors shadow">Save Notes</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div 
+                      className="cursor-text bg-[#1A1A1A] hover:bg-[#222] p-3 rounded-lg border border-dashed border-[#333] hover:border-[var(--primary)]/50 transition-all select-none"
+                      onClick={() => { setEditingNotes(ch.id); setTempNotes(ch.notes || ''); setEditingChapterId(null); }}
+                    >
+                      {ch.notes ? (
+                        <div className="text-sm text-[var(--text-muted)] font-mono leading-relaxed whitespace-pre-wrap pl-2 border-l-2 border-[var(--primary)]/50">{ch.notes}</div>
+                      ) : (
+                        <span className="text-xs text-gray-500 italic flex items-center gap-2">
+                          <span className="bg-black border border-gray-600 rounded px-1">+</span> Add ultra-short revision notes
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

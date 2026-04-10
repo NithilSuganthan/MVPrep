@@ -785,7 +785,21 @@ app.get('/api/dashboard', authenticateToken, async (req, res) => {
     const passingSubjects = subjectPredictions.filter(p => p.isPassing).length;
     const allPassing = passingSubjects === subjectPredictions.length;
 
+    // Fetch exam_date and student_name for dashboard display
+    const examDateRes = await db.execute({
+      sql: "SELECT value FROM settings WHERE key = 'exam_date' AND user_id = ?",
+      args: [req.user.id]
+    });
+    const studentNameRes = await db.execute({
+      sql: "SELECT value FROM settings WHERE key = 'student_name' AND user_id = ?",
+      args: [req.user.id]
+    });
+    const examDate = examDateRes.rows[0]?.value || '';
+    const studentName = studentNameRes.rows[0]?.value || 'Aspirant';
+
     res.json({
+      examDate,
+      studentName,
       level,
       interStrategy,
       totalMarks,

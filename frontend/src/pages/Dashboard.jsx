@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { getDashboardInfo, saveSettings } from '../api';
 import { Pie, Bar } from 'react-chartjs-2';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title } from 'chart.js';
-import { FiTarget, FiZap, FiAlertTriangle, FiCheckCircle } from 'react-icons/fi';
+import { FiTarget, FiZap, FiAlertTriangle, FiCheckCircle, FiCalendar } from 'react-icons/fi';
+import { Link } from 'react-router-dom';
 import StudyHeatmap from '../components/StudyHeatmap';
 import ScorePredictor from '../components/ScorePredictor';
 
@@ -173,6 +174,20 @@ export default function Dashboard() {
     { value: 'group_2', label: 'Group 2', desc: 'Papers 4–6' },
   ];
 
+  // Exam Countdown calculation
+  const getCountdown = () => {
+    if (!data.examDate) return null;
+    const now = new Date();
+    const exam = new Date(data.examDate + 'T00:00:00');
+    const diff = exam - now;
+    if (diff <= 0) return { expired: true };
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    return { days, hours, minutes, expired: false };
+  };
+  const countdown = getCountdown();
+
   return (
     <div className="animate-fade-in space-y-6">
       <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -189,6 +204,77 @@ export default function Dashboard() {
           <FiTarget size={18} /> ENTER FOCUS MODE
         </button>
       </header>
+
+      {/* Exam Countdown Banner */}
+      {countdown ? (
+        countdown.expired ? (
+          <div className="card border-2 border-emerald-500/30 bg-gradient-to-r from-emerald-900/20 to-[var(--surface)] flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 flex items-center justify-center text-emerald-400">
+                <FiCheckCircle size={24} />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-emerald-400">Exam Day Has Passed!</h3>
+                <p className="text-sm text-[var(--text-muted)]">Update your exam date in Settings for the next attempt.</p>
+              </div>
+            </div>
+            <Link to="/settings" className="btn-secondary text-sm px-6 py-2 whitespace-nowrap">Update Date</Link>
+          </div>
+        ) : (
+          <div className={`card border-2 ${
+            countdown.days <= 3 ? 'border-red-500/40 bg-gradient-to-r from-red-900/20 to-[var(--surface)] shadow-[0_0_30px_rgba(239,68,68,0.1)]' :
+            countdown.days <= 14 ? 'border-orange-500/30 bg-gradient-to-r from-orange-900/15 to-[var(--surface)]' :
+            'border-[var(--primary)]/30 bg-gradient-to-r from-blue-900/15 to-[var(--surface)]'
+          }`}>
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
+                  countdown.days <= 3 ? 'bg-red-500/20 text-red-400' :
+                  countdown.days <= 14 ? 'bg-orange-500/20 text-orange-400' :
+                  'bg-blue-500/20 text-blue-400'
+                }`}>
+                  <FiCalendar size={24} />
+                </div>
+                <div>
+                  <p className="text-xs text-[var(--text-muted)] uppercase tracking-wider font-bold">Exam Countdown</p>
+                  <p className="text-sm text-[var(--text-muted)] mt-0.5">
+                    {new Date(data.examDate + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="text-center px-4 py-2 bg-black/30 rounded-xl border border-[var(--border)] min-w-[70px]">
+                  <div className={`text-2xl font-black font-mono ${countdown.days <= 3 ? 'text-red-400' : countdown.days <= 14 ? 'text-orange-400' : 'text-white'}`}>{countdown.days}</div>
+                  <div className="text-[10px] text-[var(--text-muted)] uppercase font-bold tracking-wider">Days</div>
+                </div>
+                <div className="text-center px-4 py-2 bg-black/30 rounded-xl border border-[var(--border)] min-w-[70px]">
+                  <div className="text-2xl font-black font-mono text-white">{countdown.hours}</div>
+                  <div className="text-[10px] text-[var(--text-muted)] uppercase font-bold tracking-wider">Hours</div>
+                </div>
+                <div className="text-center px-4 py-2 bg-black/30 rounded-xl border border-[var(--border)] min-w-[70px]">
+                  <div className="text-2xl font-black font-mono text-white">{countdown.minutes}</div>
+                  <div className="text-[10px] text-[var(--text-muted)] uppercase font-bold tracking-wider">Mins</div>
+                </div>
+              </div>
+            </div>
+            {countdown.days <= 7 && (
+              <p className={`text-xs mt-3 font-bold text-center ${countdown.days <= 3 ? 'text-red-400' : 'text-orange-400'}`}>
+                {countdown.days <= 1 ? '🔥 EXAM TOMORROW — Stay calm, revise A-priority only!' :
+                 countdown.days <= 3 ? '⚡ Final stretch! Focus on high-risk chapters and quick notes.' :
+                 '📋 One week left — stick to your revision plan!'}
+              </p>
+            )}
+          </div>
+        )
+      ) : (
+        <div className="card border border-dashed border-[var(--border)] bg-[var(--surface-hover)]/50 flex flex-col sm:flex-row items-center justify-between gap-4 py-4">
+          <div className="flex items-center gap-3">
+            <FiCalendar className="text-[var(--text-muted)]" size={20} />
+            <p className="text-sm text-[var(--text-muted)]">Set your exam date to see a live countdown here</p>
+          </div>
+          <Link to="/settings" className="text-sm text-[var(--primary)] hover:underline font-medium">Go to Settings →</Link>
+        </div>
+      )}
 
       {/* CA Inter Exam Strategy Toggle */}
       {data.level === 'inter' && (
