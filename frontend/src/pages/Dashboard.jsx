@@ -17,6 +17,28 @@ export default function Dashboard() {
   const [strategy, setStrategy] = useState('both');
   const [strategyLoading, setStrategyLoading] = useState(false);
   const [examDate, setExamDate] = useState('');
+  const [countdown, setCountdown] = useState(null);
+
+  useEffect(() => {
+    if (!examDate) { setCountdown(null); return; }
+    const tick = () => {
+      const now = new Date();
+      const exam = new Date(examDate + 'T00:00:00');
+      if (isNaN(exam.getTime())) { setCountdown(null); return; }
+      const diff = exam - now;
+      if (diff <= 0) { setCountdown({ expired: true }); return; }
+      setCountdown({
+        days: Math.floor(diff / (1000 * 60 * 60 * 24)),
+        hours: Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)),
+        minutes: Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60)),
+        seconds: Math.floor((diff % (1000 * 60)) / 1000),
+        expired: false
+      });
+    };
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [examDate]);
 
   const fetchDashboard = () => {
     getDashboardInfo().then(res => {
@@ -180,28 +202,7 @@ export default function Dashboard() {
     { value: 'group_2', label: 'Group 2', desc: 'Papers 4–6' },
   ];
 
-  // Exam Countdown - live ticking
-  const [countdown, setCountdown] = useState(null);
-  useEffect(() => {
-    if (!examDate) { setCountdown(null); return; }
-    const tick = () => {
-      const now = new Date();
-      const exam = new Date(examDate + 'T00:00:00');
-      if (isNaN(exam.getTime())) { setCountdown(null); return; }
-      const diff = exam - now;
-      if (diff <= 0) { setCountdown({ expired: true }); return; }
-      setCountdown({
-        days: Math.floor(diff / (1000 * 60 * 60 * 24)),
-        hours: Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)),
-        minutes: Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60)),
-        seconds: Math.floor((diff % (1000 * 60)) / 1000),
-        expired: false
-      });
-    };
-    tick();
-    const interval = setInterval(tick, 1000);
-    return () => clearInterval(interval);
-  }, [examDate]);
+  // Exam Countdown logic moved to top level hooks
 
   return (
     <div className="animate-fade-in space-y-6">
